@@ -1,0 +1,92 @@
+import { createClient } from "@supabase/supabase-js";
+
+export const dynamic = "force-dynamic";
+
+const ROW_ID = "main";
+
+// MUHIM: bu yerda SERVICE ROLE kaliti ishlatiladi (SUPABASE_SERVICE_ROLE_KEY,
+// "NEXT_PUBLIC_" prefiksisiz) — Next.js bunday o'zgaruvchini hech qachon
+// brauzerga yubormaydi, faqat serverda ishlaydi. RLS yoqilgan bo'lsa ham,
+// service role kaliti uni chetlab o'tadi — shuning uchun ilova ishlashda
+// davom etadi, faqat endi brauzerdan TO'G'RIDAN-TO'G'RI kirish yo'q.
+function serverClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+  );
+}
+
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const key = searchParams.get("key");
+  if (!key) return Response.json({ ok: false, error: "key kerak" }, { status: 400 });
+
+  try {
+    const supabase = serverClient();
+    const { data, error } = await supabase
+      .from("app_data")
+      .select("data, updated_at")
+      .eq("id", ROW_ID)
+      .single();
+
+    if (error && error.code !== "PGRST116") throw error;
+
+    const bag = data?.data || {};
+    const value = bag[key];
+    const version = Number(bag.__version || 0);
+
+    return Response.json({
+      ok: true,
+      value: value === undefined ? null : (typeof value === "string" ? value : JSON.stringify(value)),
+      version,
+      updatedAt: data?.updated_at || null,
+    });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e.message || e) }, { status: 500 });
+  }
+}
+
+/**
+ * PUT body: { key, valueStr, expectedVersion }
+ * Optimistic lock: expectedVersion serverdagi bilan mos kelmasa 409 (conflict).
+ */
+export async function PUT(request) {
+  try {
+    const body = await request.json();
+    const { key, valueStr, expectedVersion } = body || {};
+    if (!key || valueStr === undefined) {
+      return Response.json({ ok: false, error: "key va valueStr kerak" }, { status: 400 });
+    }
+
+    const supabase = serverClient();
+    const { data: existing, error: readErr } = await supabase
+      .from("app_data")
+      .select("data")
+      .eq("id", ROW_ID)
+      .single();
+    if (readErr && readErr.code !== "PGRST116") throw readErr;
+
+    const current = existing?.data || {};
+    const serverVersion = Number(current.__version || 0);
+
+    if (expectedVersion !== undefined && expectedVersion !== null && Number(expectedVersion) !== serverVersion) {
+      return Response.json(
+        { ok: false, conflict: true, serverVersion, message: "Boshqa qurilma ma'lumotni yangilagan. Qayta yuklang." },
+        { status: 409 }
+      );
+    }
+
+    const parsed = JSON.parse(valueStr);
+    const nextVersion = serverVersion + 1;
+    const updated = { ...current, [key]: parsed, __version: nextVersion };
+
+    const { error } = await supabase
+      .from("app_data")
+      .upsert({ id: ROW_ID, data: updated, updated_at: new Date().toISOString() });
+    if (error) throw error;
+
+    return Response.json({ ok: true, version: nextVersion });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e.message || e) }, { status: 500 });
+  }
+}
