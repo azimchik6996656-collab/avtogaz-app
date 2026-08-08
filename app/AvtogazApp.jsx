@@ -1,8 +1,9 @@
 "use client";
 import { storage } from "../lib/supabase";
+import { authClient } from "../lib/authClient";
 import {
   hashPin, pinsMatch, getLockoutState, recordFailedPinAttempt,
-  clearPinAttempts, isDefaultPinSet, SECURITY,
+  clearPinAttempts, SECURITY,
 } from "../lib/security";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -1728,13 +1729,31 @@ function Card({ title, children, action, pad = true, accent }) {
 /* ═══════════════════════════════════════════════════
    LOGIN SCREEN
 ═══════════════════════════════════════════════════ */
-function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerCodes, onSuccess }) {
+function LoginScreen({ authError, onSuccess }) {
   const [digits, setDigits] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lockout, setLockout] = useState(() => getLockoutState());
   const [cbu, setCbu] = useState(null); // { rate, date } yoki null — CBU rasmiy kursi, faqat ma'lumot uchun
   const [now, setNow] = useState(() => new Date());
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState("");
+
+  async function handleGoogleSignIn() {
+    setGoogleError("");
+    setGoogleBusy(true);
+    try {
+      const { error: signInError } = await authClient.signInWithGoogle();
+      if (signInError) {
+        setGoogleError(signInError.message || "Google orqali kirishda xato yuz berdi.");
+        setGoogleBusy(false);
+      }
+      // Xato bo'lmasa — sahifa Google login sahifasiga yo'naltiriladi.
+    } catch (e) {
+      setGoogleError(String(e?.message || e));
+      setGoogleBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1752,6 +1771,10 @@ function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerC
     return () => clearInterval(t);
   }, []);
 
+  // PIN endi mahalliy ravishda solishtirilmaydi — /api/login orqali SERVERDA
+  // tekshiriladi (usta/ta'minotchi/hamkor uchun; ofis xodimlari endi faqat
+  // Google orqali kiradi). Bu /api/data'ning har qanday himoyasiz chaqirilishini
+  // (masalan curl orqali) to'sadi, chunki server endi haqiqiy kredensial talab qiladi.
   async function checkPin(v) {
     if (busy) return;
     const lo = getLockoutState();
@@ -1762,54 +1785,24 @@ function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerC
     }
     setBusy(true);
     try {
-      // 1) Ustaning shaxsiy kodi — hash yoki legacy ochiq kod
-      for (const u of (ustaCodes || [])) {
-        if (await pinsMatch(v, u.code)) {
-          clearPinAttempts();
-          setDigits(""); setError(false);
-          onSuccess("usta", u.name);
-          return;
-        }
-      }
-      // 1b) Ta'minotchining shaxsiy kodi
-      for (const s of (supplierCodes || [])) {
-        if (await pinsMatch(v, s.code)) {
-          clearPinAttempts();
-          setDigits(""); setError(false);
-          onSuccess("taminotchi", s.name);
-          return;
-        }
-      }
-      // 1c) Hamkorning shaxsiy kodi
-      for (const p of (partnerCodes || [])) {
-        if (await pinsMatch(v, p.code)) {
-          clearPinAttempts();
-          setDigits(""); setError(false);
-          onSuccess("hamkor", p.partnerId);
-          return;
-        }
-      }
-      // 2) Umumiy rol PIN — "usta" ataylab yo'q
-      for (const [k, p] of Object.entries(pins || {})) {
-        if (k === "usta") continue;
-        if (await pinsMatch(v, p)) {
-          clearPinAttempts();
-          setDigits(""); setError(false);
-          onSuccess(k);
-          return;
-        }
-      }
-      // 3) 7 xonali to'liq huquqli kod
-      for (const c of (extraAdminCodes || [])) {
-        if (await pinsMatch(v, c.code)) {
-          clearPinAttempts();
-          setDigits(""); setError(false);
-          onSuccess("azim");
-          return;
-        }
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: v }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) {
+        clearPinAttempts();
+        authClient.setPinToken(json.token);
+        setDigits(""); setError(false);
+        onSuccess(json.role, json.name);
+        return;
       }
       const next = recordFailedPinAttempt();
       setLockout(next);
+      setError(true);
+      setTimeout(() => { setDigits(""); setError(false); }, 450);
+    } catch (e) {
       setError(true);
       setTimeout(() => { setDigits(""); setError(false); }, 450);
     } finally {
@@ -1817,7 +1810,7 @@ function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerC
     }
   }
   function press(d) {
-    if (digits.length >= 7 || error || lockout.locked || busy) return;
+    if (digits.length >= 4 || error || lockout.locked || busy) return;
     setDigits((s) => s + d);
   }
 
@@ -1841,7 +1834,7 @@ function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerC
 
   const OY_NOM = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
   const KUN_NOM = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
-  const canEnter = !lockout.locked && !busy && (digits.length === 4 || digits.length === 7);
+  const canEnter = !lockout.locked && !busy && digits.length === 4;
   const lockRemainMin = lockout.locked ? Math.max(1, Math.ceil((lockout.until - Date.now()) / 60000)) : 0;
 
   return (
@@ -1921,20 +1914,48 @@ function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerC
               <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: T.teal }}>{APP_VERSION}</div>
             </div>
 
-            <div style={{ padding: "22px 30px 30px" }}>
+            <div style={{ padding: "22px 30px 0" }}>
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={googleBusy}
+                style={{
+                  width: "100%", padding: 13, borderRadius: 14, border: "1px solid rgba(255,255,255,.14)",
+                  cursor: googleBusy ? "not-allowed" : "pointer", background: "rgba(255,255,255,.05)",
+                  color: T.text, fontWeight: 700, fontSize: 13.5, fontFamily: "inherit",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                }}
+              >
+                {googleBusy ? <Loader2 size={16} className="spin" /> : (
+                  <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+                    <path fill="#FFC107" d="M43.6 20.5H42V20.5H24v7h11.3C33.7 32 29.3 35 24 35c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.3-.1-2.7-.4-3.5z" />
+                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.1 18.9 12 24 12c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.6 5.1 29.6 3 24 3c-7.7 0-14.4 4.3-17.7 11.7z" />
+                    <path fill="#4CAF50" d="M24 45c5.5 0 10.5-2.1 14.3-5.5l-6.6-5.6C29.6 35.6 26.9 37 24 37c-5.3 0-9.7-3.6-11.3-8.4l-6.7 5.2C9.5 40.6 16.2 45 24 45z" />
+                    <path fill="#1976D2" d="M43.6 20.5H42V20.5H24v7h11.3c-.8 2.3-2.2 4.3-4.1 5.9l6.6 5.6C41.9 35.5 45 30.1 45 24c0-1.3-.1-2.7-.4-3.5z" />
+                  </svg>
+                )}
+                Google orqali kirish (ofis xodimi)
+              </button>
+              {(googleError || authError) && (
+                <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: 10, fontWeight: 600 }}>
+                  {googleError || authError}
+                </p>
+              )}
+            </div>
+
+            <div style={{ padding: "18px 30px 30px" }}>
               <div style={{
                 fontSize: 10.5, fontWeight: 800, letterSpacing: ".16em", textTransform: "uppercase",
                 color: T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
               }}>
                 <span style={{ flex: 1, height: 1, background: `${T.flame}30` }} />
-                PIN kodni kiriting
+                Usta / ta'minotchi / hamkor — PIN
                 <span style={{ flex: 1, height: 1, background: `${T.flame}30` }} />
               </div>
 
               <div className={error ? "pulse" : ""} style={{
                 display: "flex", justifyContent: "center", gap: 11, marginBottom: 22, minHeight: 14,
               }}>
-                {Array.from({ length: digits.length > 4 ? 7 : 4 }).map((_, i) => (
+                {Array.from({ length: 4 }).map((_, i) => (
                   <span key={i} style={{
                     width: 11, height: 11, borderRadius: "50%",
                     background: error ? T.red : i < digits.length ? T.flame : "rgba(255,255,255,.14)",
@@ -1991,7 +2012,7 @@ function LoginScreen({ pins, extraAdminCodes, ustaCodes, supplierCodes, partnerC
                 Kirish
               </button>
               <p style={{ fontSize: 10.5, color: T.muted, textAlign: "center", marginTop: 12, fontWeight: 600 }}>
-                4 xonali — shaxsiy/rol kodi · 7 xonali — to'liq huquqli kod
+                4 xonali shaxsiy kod — usta, ta'minotchi yoki hamkor uchun
               </p>
             </div>
           </div>
@@ -2148,13 +2169,48 @@ export default function App() {
   const [partnerId, setPartnerId] = useState(null); // hamkor rolida kim ekanini bilish uchun
   const [dataSource, setDataSource] = useState(null); // "server" | "local" | "empty"
   const [dataVersion, setDataVersion] = useState(0); // optimistic lock
-  const [forcePinChange, setForcePinChange] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false); // mavjud Google sessiyasi tekshirilib bo'ldimi
+  const [authError, setAuthError] = useState(""); // Google orqali kirgan, lekin staff'da yo'q, va sh.k.
   const saveTimer = useRef(null);
   const retryCount = useRef(0);
   const dataVersionRef = useRef(0);
+  const dataFetchStarted = useRef(false);
+
+  // ── AVTORIZATSIYA: sahifa ochilganda mavjud Google sessiyasi bor-yo'qligini tekshiramiz.
+  // PIN orqali kirish (usta/ta'minotchi/hamkor) shu tekshiruvga bog'liq emas — u har doim
+  // LoginScreen'dan /api/login orqali amalga oshadi.
+  useEffect(() => {
+    (async () => {
+      try {
+        const session = await authClient.getGoogleSession();
+        if (session?.access_token) {
+          const res = await fetch("/api/whoami", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          const json = await res.json().catch(() => ({}));
+          if (json.ok) {
+            setRole(json.role);
+          } else {
+            await authClient.signOutGoogle();
+            setAuthError(json.error || "Ruxsat yo'q");
+          }
+        }
+      } catch (e) {
+        console.error("Avtorizatsiyani tekshirish xatosi:", e);
+      } finally {
+        setAuthChecked(true);
+      }
+    })();
+  }, []);
 
   // ── YUKLASH: server va lokal zaxirani solishtirib, eng so'nggisini olamiz ──
+  // Faqat kirish muvaffaqiyatli bo'lgandan keyin (role o'rnatilgandan keyin) ishga tushadi —
+  // /api/data endi kredensial talab qiladi, shuning uchun kirishdan oldin so'rov yuborishning
+  // ma'nosi yo'q. Bir marta ishga tushgandan keyin qayta ishga tushmaydi (masalan chiqib qayta
+  // kirilganda) — bu avvalgi xulq-atvor bilan bir xil.
   useEffect(() => {
+    if (!role || dataFetchStarted.current) return;
+    dataFetchStarted.current = true;
     (async () => {
       let serverPayload = null; // {data, savedAt}
       try {
@@ -2222,15 +2278,11 @@ export default function App() {
         const ver = Number((serverPayload && serverPayload._version) || 0);
         dataVersionRef.current = ver;
         setDataVersion(ver);
-        // Standart PIN hali o'zgarmagan bo'lsa — majburiy ogohlantirish
-        if (isDefaultPinSet(chosen?.settings?.pins, chosen?.settings?.extraAdminCodes)) {
-          setForcePinChange(true);
-        }
       }
       setDataSource(source);
       setLoaded(true);
     })();
-  }, []);
+  }, [role]);
 
   // ── SAQLASH: har o'zgarishda darhol lokal, keyin serverga (retry bilan) ──
   useEffect(() => {
@@ -2308,7 +2360,7 @@ export default function App() {
     if (role && tabs.length && !tabs.some((t) => t.id === tab)) setTab(tabs[0].id);
   }, [role]);
 
-  if (!loaded)
+  if (!authChecked)
     return (
       <div style={{
         minHeight: "100vh", background: T.bg, display: "flex",
@@ -2321,12 +2373,9 @@ export default function App() {
 
   if (!role) return (
     <LoginScreen
-      pins={data.settings.pins}
-      extraAdminCodes={data.settings.extraAdminCodes}
-      ustaCodes={data.settings.ustaCodes}
-      supplierCodes={data.settings.supplierCodes}
-      partnerCodes={data.settings.partnerCodes}
+      authError={authError}
       onSuccess={(r, name) => {
+        setAuthError("");
         setRole(r);
         if (r === "usta") setUstaName(name);
         else if (r === "taminotchi") setSupplierName(name);
@@ -2334,6 +2383,17 @@ export default function App() {
       }}
     />
   );
+
+  if (!loaded)
+    return (
+      <div style={{
+        minHeight: "100vh", background: T.bg, display: "flex",
+        alignItems: "center", justifyContent: "center",
+      }}>
+        <GlobalStyles />
+        <Loader2 size={30} color={T.flame} className="spin" />
+      </div>
+    );
 
   // Yuqoridagi useEffect bu holatni darhol bekor qiladi (login ekraniga qaytaradi) —
   // bu yerda faqat o'sha bir lahzalik oraliqda bo'sh/insecure interfeys ko'rinmasligi uchun.
@@ -2451,7 +2511,11 @@ export default function App() {
             }}
           />
 
-          <Btn variant="ghost" size="sm" onClick={() => { setRole(null); setUstaName(null); setSupplierName(null); setPartnerId(null); }} style={{ color: T.red }}>
+          <Btn variant="ghost" size="sm" onClick={() => {
+            if (["azim", "rahbar", "kassir", "sklad"].includes(role)) authClient.signOutGoogle();
+            else authClient.clearPinToken();
+            setRole(null); setUstaName(null); setSupplierName(null); setPartnerId(null);
+          }} style={{ color: T.red }}>
             <LogOut size={13} />
           </Btn>
         </div>
@@ -2497,19 +2561,6 @@ export default function App() {
         {tab === "hamkorpanel" && <PartnerPanelTab data={data} partnerId={partnerId} />}
       </div>
       <ConfirmHost />
-      {forcePinChange && role === "azim" && (
-        <div style={{
-          position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 180,
-          background: T.s1, border: `1px solid ${T.gold}55`, borderRadius: 12,
-          padding: "12px 16px", boxShadow: "0 12px 40px rgba(0,0,0,.35)", maxWidth: 420,
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.gold, marginBottom: 4 }}>Xavfsizlik: standart PIN hali faol</div>
-          <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
-            Rahbar / kassir / sklad PIN kodlarini darhol o'zgartiring. Menyu → PIN kodlarni o'zgartirish.
-          </div>
-          <Btn size="sm" variant="gold" onClick={() => setForcePinChange(false)}>Tushundim</Btn>
-        </div>
-      )}
       {saveState === "conflict" && (
         <div style={{
           position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 180,

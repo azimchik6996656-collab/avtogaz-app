@@ -1,22 +1,33 @@
-import { createClient } from "@supabase/supabase-js";
+import { serverClient } from "../../../lib/supabaseServer";
+import { verifySession } from "../../../lib/pinSession";
+import { verifyGoogleStaff } from "../../../lib/staffAuth";
 
 export const dynamic = "force-dynamic";
 
 const ROW_ID = "main";
 
-// MUHIM: bu yerda SERVICE ROLE kaliti ishlatiladi (SUPABASE_SERVICE_ROLE_KEY,
-// "NEXT_PUBLIC_" prefiksisiz) — Next.js bunday o'zgaruvchini hech qachon
-// brauzerga yubormaydi, faqat serverda ishlaydi. RLS yoqilgan bo'lsa ham,
-// service role kaliti uni chetlab o'tadi — shuning uchun ilova ishlashda
-// davom etadi, faqat endi brauzerdan TO'G'RIDAN-TO'G'RI kirish yo'q.
-function serverClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-  );
+/**
+ * MUHIM: bu route SERVICE ROLE kaliti bilan ishlaydi (RLS'ni chetlab o'tadi),
+ * shuning uchun ruxsat tekshiruvi shu yerda, qo'lda amalga oshiriladi:
+ *  - PIN-sessiya tokeni (usta/ta'minotchi/hamkor, /api/login orqali olingan), YOKI
+ *  - Google (Supabase Auth) access_token + `staff` jadvalida ro'yxatdan o'tgan email
+ * Ikkisidan biri ham to'g'ri kelmasa — so'rov rad etiladi.
+ */
+async function authorize(request) {
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) return { ok: false, status: 401, error: "Avtorizatsiya kerak" };
+
+  const pinPayload = verifySession(token);
+  if (pinPayload) return { ok: true, role: pinPayload.role };
+
+  return await verifyGoogleStaff(token);
 }
 
 export async function GET(request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return Response.json({ ok: false, error: auth.error }, { status: auth.status });
+
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
   if (!key) return Response.json({ ok: false, error: "key kerak" }, { status: 400 });
@@ -51,6 +62,9 @@ export async function GET(request) {
  * Optimistic lock: expectedVersion serverdagi bilan mos kelmasa 409 (conflict).
  */
 export async function PUT(request) {
+  const auth = await authorize(request);
+  if (!auth.ok) return Response.json({ ok: false, error: auth.error }, { status: auth.status });
+
   try {
     const body = await request.json();
     const { key, valueStr, expectedVersion } = body || {};
