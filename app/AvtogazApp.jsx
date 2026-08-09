@@ -1871,62 +1871,99 @@ function LoginScreen({ authError, onSuccess }) {
   const lockRemainMin = lockout.locked ? Math.max(1, Math.ceil((lockout.until - Date.now()) / 60000)) : 0;
 
   return (
-    <div style={{
-      minHeight: "100vh", background: T.bg, display: "flex",
-      alignItems: "center", justifyContent: "center", padding: 20, position: "relative", overflow: "hidden",
-    }}>
+    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", position: "relative", overflow: "hidden" }}>
       <GlobalStyles />
       <style>{`
-        .login-glow{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0}
-        .login-glow-1{width:520px;height:520px;background:#2C333C4D;top:-140px;left:-100px}
-        .login-glow-2{width:440px;height:440px;background:${T.flame}18;bottom:-120px;right:-80px}
-        .login-scene{position:relative;z-index:2;width:100%;max-width:600px;display:flex;align-items:center;justify-content:center;padding:60px 46px}
-        .login-float{position:absolute;z-index:1;background:linear-gradient(160deg, rgba(46,51,58,.45), rgba(14,17,21,.65));
-          backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);
-          border:1px solid rgba(255,255,255,.07);border-radius:16px;box-shadow:0 22px 50px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
-          padding:14px 18px}
-        .login-float-top{top:2px;left:0}
-        .login-float-bottom{bottom:8px;right:0}
-        .login-float-row{display:contents}
-        @media(max-width:680px){
-          .login-scene{flex-direction:column;padding:0 0 16px;gap:0}
-          .login-float-row{display:flex;gap:10px;width:100%;margin-bottom:14px}
-          .login-float{position:static}
+        .login-hero{position:relative;flex:1.15;display:flex;flex-direction:column;justify-content:space-between;
+          padding:56px 64px;overflow:hidden;
+          background:radial-gradient(circle at 18% 12%, ${T.flame}22, transparent 55%),
+                     radial-gradient(circle at 82% 88%, ${T.teal}1c, transparent 50%),
+                     linear-gradient(160deg, ${T.s1}, ${T.bg} 75%);
+          border-right:1px solid ${T.border}}
+        .login-hero-glow{position:absolute;border-radius:50%;filter:blur(130px);pointer-events:none;z-index:0}
+        .login-hero-glow-1{width:480px;height:480px;background:${T.flame}26;top:-160px;left:-120px}
+        .login-hero-glow-2{width:420px;height:420px;background:${T.teal}20;bottom:-140px;right:-100px}
+        .login-hero-top{position:relative;z-index:1;display:flex;align-items:center;gap:7px}
+        .login-hero-mid{position:relative;z-index:1}
+        .login-hero-stats{position:relative;z-index:1;display:flex;gap:16px}
+        .login-hero-stat{flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+          border-radius:16px;padding:18px 20px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+        .login-side{flex:none;width:460px;display:flex;align-items:center;justify-content:center;
+          padding:40px 20px;position:relative;z-index:2}
+        .login-mobile-info{display:none}
+        @media(max-width:960px){
+          .login-hero{display:none}
+          .login-side{width:100%}
+          .login-mobile-info{display:flex;gap:10px;margin-bottom:18px}
         }
       `}</style>
-      <div className="login-glow login-glow-1" />
-      <div className="login-glow login-glow-2" />
 
-      <div className="login-scene">
-        <div className="login-float-row">
-          <div className="login-float login-float-top">
-            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: T.teal, boxShadow: `0 0 9px ${T.teal}99` }} />
-              <span style={{ fontSize: 11, fontWeight: 800, color: T.muted2, letterSpacing: ".03em" }}>Tizim onlayn</span>
+      <div className="login-hero">
+        <div className="login-hero-glow login-hero-glow-1" />
+        <div className="login-hero-glow login-hero-glow-2" />
+        <div className="login-hero-top">
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: T.teal, boxShadow: `0 0 9px ${T.teal}99` }} />
+          <span style={{ fontSize: 11, fontWeight: 800, color: T.muted2, letterSpacing: ".03em" }}>Tizim onlayn</span>
+        </div>
+
+        <div className="login-hero-mid">
+          <div style={{
+            display: "inline-flex", background: "#FBFAF8", borderRadius: 14, padding: "10px 16px",
+            marginBottom: 26, boxShadow: "0 12px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
+          }}>
+            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 30, width: "auto" }} />
+          </div>
+          <h1 className="bc" style={{ fontSize: 44, fontWeight: 800, color: T.text, lineHeight: 1.08, maxWidth: 480 }}>
+            Xizmat boshqaruv paneli
+          </h1>
+          <p style={{ fontSize: 14.5, color: T.muted, fontWeight: 600, marginTop: 14, maxWidth: 420, lineHeight: 1.6 }}>
+            Servis, moliya, ombor va mijozlar bilan ishlash uchun yagona tizim.
+          </p>
+        </div>
+
+        <div className="login-hero-stats">
+          <div className="login-hero-stat">
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>
+              Vaqt
             </div>
-            <div className="mo" style={{ fontSize: 20, fontWeight: 800, color: T.text }}>
+            <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: T.text }}>
               {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
             </div>
-            <div style={{ fontSize: 10.5, color: T.muted, fontWeight: 600, marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginTop: 3 }}>
               {now.getDate()}-{OY_NOM[now.getMonth()]}, {KUN_NOM[now.getDay()]}
             </div>
           </div>
-          <div className="login-float login-float-bottom">
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, marginBottom: 6 }}>
+          <div className="login-hero-stat">
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>
               CBU rasmiy kursi
             </div>
             {cbu ? (
               <>
-                <div className="mo" style={{ fontSize: 20, fontWeight: 800, color: T.text }}>{fmtSum(cbu.rate)}</div>
-                <div style={{ fontSize: 10.5, color: T.muted, fontWeight: 600, marginTop: 2 }}>1 USD · {cbu.date}</div>
+                <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: T.text }}>{fmtSum(cbu.rate)}</div>
+                <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginTop: 3 }}>1 USD · {cbu.date}</div>
               </>
             ) : (
               <div style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>yuklanmoqda…</div>
             )}
           </div>
         </div>
+      </div>
 
-        <div style={{ width: "100%", maxWidth: 340 }}>
+      <div className="login-side">
+        <div style={{ width: "100%", maxWidth: 380 }}>
+          <div className="login-mobile-info">
+            <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, borderRadius: 14, padding: "10px 14px" }}>
+              <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: T.text }}>
+                {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
+              </div>
+              <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>{now.getDate()}-{OY_NOM[now.getMonth()]}</div>
+            </div>
+            <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, borderRadius: 14, padding: "10px 14px" }}>
+              <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{cbu ? fmtSum(cbu.rate) : "…"}</div>
+              <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>1 USD kursi</div>
+            </div>
+          </div>
+
           <div style={{
             background: `linear-gradient(160deg, ${T.s2}, ${T.s1})`,
             backdropFilter: "blur(28px) saturate(140%)", WebkitBackdropFilter: "blur(28px) saturate(140%)",
@@ -1935,14 +1972,8 @@ function LoginScreen({ authError, onSuccess }) {
             overflow: "hidden",
           }}>
             <div style={{ padding: "32px 30px 22px", textAlign: "center", position: "relative" }}>
-              <div style={{
-                display: "inline-flex", background: "#FBFAF8", borderRadius: 14, padding: "10px 16px",
-                marginBottom: 14, boxShadow: "0 12px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
-              }}>
-                <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 26, width: "auto" }} />
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".18em", textTransform: "uppercase", color: T.muted2, marginBottom: 6 }}>
-                Xizmat paneli
+              <div className="mo" style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".18em", textTransform: "uppercase", color: T.muted2, marginBottom: 6 }}>
+                Xush kelibsiz
               </div>
               <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: T.teal }}>{APP_VERSION}</div>
             </div>
