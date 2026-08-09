@@ -37,9 +37,10 @@ function recordSuccess(ip) {
 }
 
 /**
- * Faqat tashqi rollar (usta/ta'minotchi/hamkor) uchun — ofis xodimlari
- * (azim/rahbar/kassir/sklad) endi FAQAT Google orqali kiradi, PIN'lari
- * bu endpoint'da ataylab tekshirilmaydi.
+ * Tashqi rollar (usta/ta'minotchi/hamkor) — shaxsiy 4-xonali kod.
+ * "rahbar" — email/Google hisobi bo'lmagan xodimlar uchun istisno sifatida,
+ * shu yerda (settings.pins.rahbar) serverda tekshiriladi. Boshqa ofis rollari
+ * (azim/kassir/sklad) faqat Google/email orqali kiradi.
  */
 export async function POST(request) {
   try {
@@ -67,7 +68,12 @@ export async function POST(request) {
     const ustaCodes = settings.ustaCodes || [];
     const supplierCodes = settings.supplierCodes || [];
     const partnerCodes = settings.partnerCodes || [];
+    const rahbarPin = settings.pins?.rahbar;
 
+    if (rahbarPin && (await pinsMatch(pin, rahbarPin))) {
+      recordSuccess(ip);
+      return Response.json({ ok: true, role: "rahbar", token: issueSession({ role: "rahbar" }) });
+    }
     for (const u of ustaCodes) {
       if (u?.code && (await pinsMatch(pin, u.code))) {
         recordSuccess(ip);

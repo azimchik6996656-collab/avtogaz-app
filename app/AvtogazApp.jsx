@@ -2015,7 +2015,7 @@ function LoginScreen({ authError, onSuccess }) {
                 color: T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
               }}>
                 <span style={{ flex: 1, height: 1, background: `${T.flame}30` }} />
-                Usta / ta'minotchi / hamkor — PIN
+                Usta / ta'minotchi / hamkor / rahbar — PIN
                 <span style={{ flex: 1, height: 1, background: `${T.flame}30` }} />
               </div>
 
@@ -2580,8 +2580,9 @@ export default function App() {
           />
 
           <Btn variant="ghost" size="sm" onClick={() => {
-            if (["azim", "rahbar", "kassir", "sklad"].includes(role)) authClient.signOutGoogle();
-            else authClient.clearPinToken();
+            // rahbar endi ham PIN, ham Google/email orqali kirishi mumkin — ikkisini ham tozalaymiz.
+            authClient.signOutGoogle();
+            authClient.clearPinToken();
             setRole(null); setUstaName(null); setSupplierName(null); setPartnerId(null);
           }} style={{ color: T.red }}>
             <LogOut size={13} />
