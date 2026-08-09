@@ -1749,6 +1749,28 @@ function LoginScreen({ authError, onSuccess }) {
   const [now, setNow] = useState(() => new Date());
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleError, setGoogleError] = useState("");
+  const [emailFormOpen, setEmailFormOpen] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailError, setEmailError] = useState("");
+
+  // Google hisobi bo'lmagan ofis xodimlari uchun — emailga kirish havolasi yuboriladi.
+  async function handleEmailSignIn() {
+    const email = emailInput.trim();
+    if (!email) return;
+    setEmailError("");
+    setEmailBusy(true);
+    try {
+      const { error: otpError } = await authClient.signInWithEmail(email);
+      if (otpError) setEmailError(otpError.message || "Havola yuborishda xato yuz berdi.");
+      else setEmailSent(true);
+    } catch (e) {
+      setEmailError(String(e?.message || e));
+    } finally {
+      setEmailBusy(false);
+    }
+  }
 
   async function handleGoogleSignIn() {
     setGoogleError("");
@@ -1950,6 +1972,40 @@ function LoginScreen({ authError, onSuccess }) {
                 <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: 10, fontWeight: 600 }}>
                   {googleError || authError}
                 </p>
+              )}
+
+              {!emailFormOpen ? (
+                <button onClick={() => setEmailFormOpen(true)} style={{
+                  display: "block", width: "100%", background: "none", border: "none", cursor: "pointer",
+                  color: T.muted, fontSize: 11.5, fontWeight: 600, marginTop: 12, textDecoration: "underline",
+                }}>
+                  Google hisobim yo'q — email orqali kirish
+                </button>
+              ) : emailSent ? (
+                <p style={{ fontSize: 12, color: T.teal, textAlign: "center", marginTop: 12, fontWeight: 600, lineHeight: 1.5 }}>
+                  Havola <span className="mo">{emailInput}</span> manziliga yuborildi — emailingizni ochib, havolani bosing.
+                </p>
+              ) : (
+                <div style={{ marginTop: 12 }}>
+                  <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="sizning@email.com" autoFocus
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border2}`,
+                      background: "rgba(255,255,255,.04)", color: T.text, fontSize: 13, marginBottom: 8,
+                      fontFamily: "inherit", boxSizing: "border-box",
+                    }} />
+                  <button onClick={handleEmailSignIn} disabled={emailBusy || !emailInput.trim()} style={{
+                    width: "100%", padding: 11, borderRadius: 10, border: "none",
+                    cursor: emailBusy || !emailInput.trim() ? "not-allowed" : "pointer",
+                    background: emailInput.trim() ? T.teal : "rgba(255,255,255,.06)",
+                    color: emailInput.trim() ? "#fff" : T.muted, fontWeight: 700, fontSize: 13, fontFamily: "inherit",
+                  }}>
+                    {emailBusy ? "Yuborilmoqda..." : "Havola yuborish"}
+                  </button>
+                  {emailError && (
+                    <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: 8, fontWeight: 600 }}>{emailError}</p>
+                  )}
+                </div>
               )}
             </div>
 
