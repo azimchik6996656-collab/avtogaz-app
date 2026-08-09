@@ -2603,14 +2603,15 @@ function DashboardTab({ data, patch, rate, setTab }) {
   const todayIncome = todayCF.filter((c) => c.type === "kirim" && isCashEntry(c)).reduce((s, c) => s + num(c.amountSum), 0);
   const todayExpense = todayCF.filter((c) => c.type === "chiqim" && isCashEntry(c)).reduce((s, c) => s + num(c.amountSum), 0);
 
-  const allIncome = data.cashflow.filter((c) => c.type === "kirim" && isCashEntry(c)).reduce((s, c) => s + num(c.amountSum), 0);
-  const allExpense = data.cashflow.filter((c) => c.type === "chiqim" && isCashEntry(c)).reduce((s, c) => s + num(c.amountSum), 0);
-  // Valyuta ayirboshlash kassadagi SO'M/USD balansiga ta'sir qiladi (Kassa bo'limidagi
-  // "Kassadagi SO'M"/"Kassadagi USD" hisobi bilan bir xil bo'lishi uchun shu yerda ham hisobga olamiz.
+  // "Kassa balansi" Kassa bo'limidagi "Kassadagi SO'M" bilan bir xil bo'lishi uchun
+  // faqat SO'M valyutasidagi yozuvlarni oladi (USD alohida "Kassadagi USD" sifatida
+  // ko'rsatiladi, bu yerga qo'shilmaydi) va valyuta ayirboshlashning SO'M balansiga
+  // ta'sirini hisobga oladi.
+  const allIncome = data.cashflow.filter((c) => c.type === "kirim" && isCashEntry(c) && c.currency !== "USD").reduce((s, c) => s + num(c.amountSum), 0);
+  const allExpense = data.cashflow.filter((c) => c.type === "chiqim" && isCashEntry(c) && c.currency !== "USD").reduce((s, c) => s + num(c.amountSum), 0);
   const dashExchanges = data.currencyExchanges || [];
   const dashExchangeSumNet = dashExchanges.reduce((s, e) => s + (e.direction === "usd_to_sum" ? num(e.sumAmount) : -num(e.sumAmount)), 0);
-  const dashExchangeUsdNet = dashExchanges.reduce((s, e) => s + (e.direction === "usd_to_sum" ? -num(e.usdAmount) : num(e.usdAmount)), 0);
-  const kassaBalance = allIncome - allExpense + dashExchangeSumNet + dashExchangeUsdNet * rate;
+  const kassaBalance = allIncome - allExpense + dashExchangeSumNet;
 
   const ustaPending = ustaPendingByName(data);
   const ustaPendingTotal = ustaPending.reduce((s, u) => s + u.amountSum, 0);
