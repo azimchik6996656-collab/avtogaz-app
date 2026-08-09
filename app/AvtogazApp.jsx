@@ -2852,6 +2852,55 @@ function CallCenterTab({ data, patch }) {
     .filter((f) => f.status === "kutilmoqda" && f.dueDate <= todayISO())
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
+  const trackedCardIds = new Set((data.warrantyFollowups || []).filter((f) => f.cardId).map((f) => f.cardId));
+  const trackedManualIds = new Set((data.warrantyFollowups || []).filter((f) => f.manualId).map((f) => f.manualId));
+  const untrackedOldWarranties =
+    (data.serviceCards || []).filter((c) => c.hasWarranty && num(c.warrantyMonths) > 0 && cardStatus(c) !== "ochiq" && !trackedCardIds.has(c.id)).length +
+    (data.warranty || []).filter((w) => w.hasWarranty && num(w.warrantyMonths) > 0 && !trackedManualIds.has(w.id)).length;
+
+  function kafolatStageFor(closedDate, warrantyMonths) {
+    const today = todayISO();
+    const marks = kafolatMonthMarks(warrantyMonths);
+    let best = { stage: "5kun", monthIndex: -1, dueDate: addDaysISO(closedDate, 5) };
+    if (today >= best.dueDate) {
+      for (let i = 0; i < marks.length; i++) {
+        const due = addMonthsISO(closedDate, marks[i]);
+        if (due <= today) best = { stage: `${marks[i]}oy`, monthIndex: i, dueDate: due };
+        else break;
+      }
+    }
+    return best;
+  }
+  function backfillOldWarranties() {
+    patch((d) => {
+      d.warrantyFollowups = d.warrantyFollowups || [];
+      const haveCard = new Set(d.warrantyFollowups.filter((f) => f.cardId).map((f) => f.cardId));
+      const haveManual = new Set(d.warrantyFollowups.filter((f) => f.manualId).map((f) => f.manualId));
+      (d.serviceCards || []).forEach((card) => {
+        if (!card.hasWarranty || num(card.warrantyMonths) <= 0) return;
+        if (cardStatus(card) === "ochiq") return;
+        if (haveCard.has(card.id)) return;
+        const st = kafolatStageFor(card.date, num(card.warrantyMonths));
+        d.warrantyFollowups.push({
+          id: uid(), cardId: card.id, plate: card.plate, phone: card.phone, carModel: card.carModel,
+          serviceType: card.serviceType, warrantyMonths: num(card.warrantyMonths),
+          closedDate: card.date, status: "kutilmoqda", history: [], ...st,
+        });
+      });
+      (d.warranty || []).forEach((w) => {
+        if (!w.hasWarranty || num(w.warrantyMonths) <= 0) return;
+        if (haveManual.has(w.id)) return;
+        const st = kafolatStageFor(w.date, num(w.warrantyMonths));
+        d.warrantyFollowups.push({
+          id: uid(), manualId: w.id, plate: w.plate, phone: w.phone, carModel: w.carModel,
+          serviceType: w.product || "", warrantyMonths: num(w.warrantyMonths),
+          closedDate: w.date, status: "kutilmoqda", history: [], ...st,
+        });
+      });
+      return d;
+    });
+  }
+
   const leads = (data.leads || [])
     .filter((l) => stageFilter === "hammasi" || l.stage === stageFilter)
     .filter((l) => (l.name + l.phone + l.carModel + l.plate).toLowerCase().includes(search.toLowerCase()))
@@ -3149,6 +3198,19 @@ function CallCenterTab({ data, patch }) {
 
       {subTab === "kafolat" && (
         <div>
+          {untrackedOldWarranties > 0 && (
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
+              background: T.s1, border: `1px solid ${T.gold}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 14,
+            }}>
+              <span style={{ fontSize: 12.5, color: T.muted2 }}>
+                Bu funksiyadan oldin yopilgan {untrackedOldWarranties} ta kafolatli karta hali nazorat jadvaliga qo'shilmagan.
+              </span>
+              <Btn size="sm" variant="gold" onClick={backfillOldWarranties}>
+                <RefreshCw size={12} /> Eski kafolatlarni qo'shish
+              </Btn>
+            </div>
+          )}
           {kafolatFollowups.length === 0 ? (
             <div style={{ padding: "50px 20px", textAlign: "center", color: T.muted, background: T.s1, borderRadius: 12, border: `1px solid ${T.border}` }}>
               <ShieldCheck size={32} color={T.border2} style={{ marginBottom: 12 }} />
