@@ -80,6 +80,8 @@ const emptyData = () => ({
   personalDebts: [],
   contractedMasters: [], // kelishilgan (oylik) ustalar — ularning haqi servis foydasiga qo'shiladi
   productRequests: [], // ustadan kassirga mahsulot so'rovlari
+  warrantyFollowups: [], // kafolat nazorati qo'ng'iroqlari jadvali (5 kun, keyin 1,3,6,9...oy)
+  complaints: [], // kafolat nazorati qo'ng'iroqlaridan kelib chiqqan mijoz shikoyatlari
   oldDebtors: [], // eski (tizimdan oldingi) qarzdorlar
   oldSupplierDebts: [], // eski (tizimdan oldingi) biz to'lashimiz kerak bo'lgan qarzlar
   wholesaleDebts: [], // ulgurji savdo — mijozlarning qarzga olgan tovarlari
@@ -94,6 +96,8 @@ const emptyData = () => ({
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
+const addDaysISO = (iso, days) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
+const addMonthsISO = (iso, months) => { const d = new Date(iso + "T00:00:00"); d.setMonth(d.getMonth() + months); return d.toISOString().slice(0, 10); };
 const fmtDate = (iso) => { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}.${m}.${y}`; };
 const num = (v) => Number(v) || 0;
 const fmtSum = (n) => Math.round(num(n)).toLocaleString("ru-RU").replace(/,/g, " ") + " so'm";
@@ -104,6 +108,13 @@ const toUsd = (a, cur, rate) => (cur === "USD" ? num(a) : rate ? num(a) / rate :
 function cardPartsCost(card) { return (card.parts || []).reduce((s, p) => s + num(p.lineTotal), 0); }
 function cardUstaFeeSum(card) { return (card.ustaFeeEntries || []).reduce((s, e) => s + num(e.amount), 0); }
 function cardStatus(card) { return card.status || "yakunlangan"; }
+// Kafolat nazorati qo'ng'iroq jadvali: 1-oy, keyin har 3 oyda (3,6,9...) kafolat muddati tugagunga qadar.
+function kafolatMonthMarks(warrantyMonths) {
+  const marks = [1];
+  let next = 3;
+  while (next <= warrantyMonths) { marks.push(next); next += 3; }
+  return marks;
+}
 
 function productProfitReport(data) {
   const map = {};
@@ -2346,6 +2357,7 @@ export default function App() {
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
     { id: "warranty",  label: "Kafolat",       Icon: ShieldCheck,roles: ["azim", "kassir"] },
+    { id: "complaints", label: "Shikoyatlar",  Icon: AlertTriangle, roles: ["azim", "rahbar"] },
     { id: "partners",  label: "Hamkorlar",     Icon: Handshake,  roles: ["azim", "kassir"] },
     { id: "employees", label: "Xodimlar",      Icon: Users,      roles: ["azim"] },
     { id: "debtbook",  label: "Qarz daftari",   Icon: BookOpen,   roles: ["azim", "kassir", "rahbar"] },
@@ -2552,6 +2564,7 @@ export default function App() {
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
         {tab === "warranty"   && <WarrantyTab   data={data} patch={patch} rate={rate} />}
+        {tab === "complaints" && <ComplaintsTab data={data} patch={patch} />}
         {tab === "partners"   && <PartnersTab   data={data} patch={patch} rate={rate} />}
         {tab === "employees"  && <EmployeesTab  data={data} patch={patch} rate={rate} />}
         {tab === "debtbook"   && <DebtBookTab   data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
@@ -2832,7 +2845,12 @@ function CallCenterTab({ data, patch }) {
   const [stageFilter, setStageFilter] = useState("hammasi");
   const [cancelLead, setCancelLead] = useState(null);
   const [dealLead, setDealLead] = useState(null);
-  const [subTab, setSubTab] = useState("calls"); // calls | tasks | analytics
+  const [subTab, setSubTab] = useState("calls"); // calls | tasks | kafolat | analytics
+  const [kafolatCallOpen, setKafolatCallOpen] = useState(null);
+
+  const kafolatFollowups = (data.warrantyFollowups || [])
+    .filter((f) => f.status === "kutilmoqda" && f.dueDate <= todayISO())
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   const leads = (data.leads || [])
     .filter((l) => stageFilter === "hammasi" || l.stage === stageFilter)
@@ -2876,6 +2894,32 @@ function CallCenterTab({ data, patch }) {
       return d;
     });
   }
+  function handleKafolatCall(followup, result, note) {
+    patch((d) => {
+      const f = (d.warrantyFollowups || []).find((x) => x.id === followup.id);
+      if (!f) return d;
+      f.history = f.history || [];
+      f.history.push({ date: todayISO(), result, note: note || "" });
+      const marks = kafolatMonthMarks(f.warrantyMonths);
+      const nextIndex = f.monthIndex + 1;
+      if (nextIndex < marks.length) {
+        f.monthIndex = nextIndex;
+        f.stage = `${marks[nextIndex]}oy`;
+        f.dueDate = addMonthsISO(f.closedDate, marks[nextIndex]);
+        f.status = "kutilmoqda";
+      } else {
+        f.status = "tugadi";
+      }
+      if (result === "muammo") {
+        d.complaints = d.complaints || [];
+        d.complaints.push({
+          id: uid(), followupId: f.id, cardId: f.cardId, plate: f.plate, phone: f.phone,
+          carModel: f.carModel, date: todayISO(), note: note || "", status: "yangi",
+        });
+      }
+      return d;
+    });
+  }
 
   const counts = LEAD_STAGES.map((s) => ({
     ...s, n: (data.leads || []).filter((l) => l.stage === s.id).length,
@@ -2898,6 +2942,7 @@ function CallCenterTab({ data, patch }) {
         {[
           ["calls", "Qo'ng'iroqlar", Phone],
           ["tasks", `Vazifalar${overdueCount > 0 ? ` (${overdueCount})` : ""}`, ListTodo],
+          ["kafolat", `Kafolat nazorati${kafolatFollowups.length > 0 ? ` (${kafolatFollowups.length})` : ""}`, ShieldCheck],
           ["analytics", "Tahlil", BarChart3],
         ].map(([v, l, Icon]) => (
           <button key={v} onClick={() => setSubTab(v)} style={{
@@ -3102,7 +3147,58 @@ function CallCenterTab({ data, patch }) {
         </div>
       )}
 
+      {subTab === "kafolat" && (
+        <div>
+          {kafolatFollowups.length === 0 ? (
+            <div style={{ padding: "50px 20px", textAlign: "center", color: T.muted, background: T.s1, borderRadius: 12, border: `1px solid ${T.border}` }}>
+              <ShieldCheck size={32} color={T.border2} style={{ marginBottom: 12 }} />
+              <p style={{ fontSize: 13 }}>Hozircha qo'ng'iroq qilish kerak bo'lgan kafolat yo'q</p>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {kafolatFollowups.map((f) => {
+                const isOverdue = f.dueDate < todayISO();
+                return (
+                  <div key={f.id} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    background: T.s1, border: `1px solid ${isOverdue ? T.red + "50" : T.border}`,
+                    borderLeft: `3px solid ${isOverdue ? T.red : T.teal}`,
+                    borderRadius: 10, padding: "13px 16px", flexWrap: "wrap", gap: 10,
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>
+                        {f.carModel || "Mashina"} {f.plate && <span className="mo">· {f.plate}</span>}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: isOverdue ? T.red : T.muted, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Clock size={11} /> {fmtDate(f.dueDate)}
+                        <span>· {f.stage === "5kun" ? "Birinchi (qoniqish) qo'ng'irog'i" : `${f.stage} nazorat qo'ng'irog'i`}</span>
+                        {f.phone && <span className="mo"> · {f.phone}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {f.phone && (
+                        <a href={`tel:${f.phone}`} style={{ textDecoration: "none" }}>
+                          <Btn size="sm" variant="ghost"><Phone size={12} /></Btn>
+                        </a>
+                      )}
+                      <Btn size="sm" variant="teal" onClick={() => setKafolatCallOpen(f)}>
+                        <Check size={12} /> Qo'ng'iroq natijasi
+                      </Btn>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {subTab === "analytics" && <CallCenterAnalytics data={data} />}
+
+      {kafolatCallOpen && (
+        <KafolatCallModal followup={kafolatCallOpen} onClose={() => setKafolatCallOpen(null)}
+          onSave={(result, note) => { handleKafolatCall(kafolatCallOpen, result, note); setKafolatCallOpen(null); }} />
+      )}
 
       {addOpen && <NewLeadModal onClose={() => setAddOpen(false)}
         onSave={(lead) => { patch((d) => { d.leads.unshift({ id: uid(), ...lead }); return d; }); setAddOpen(false); }} />}
@@ -3143,6 +3239,99 @@ function LeadDealModal({ lead, onClose, onSave }) {
         <Check size={15} /> Kelishildi deb belgilash
       </SaveBtn>
     </Modal>
+  );
+}
+
+function KafolatCallModal({ followup, onClose, onSave }) {
+  const [note, setNote] = useState("");
+  const [showNote, setShowNote] = useState(false);
+  const script = `Assalomu alaykum! Siz ${followup.carModel || "mashinangiz"}${followup.plate ? " (" + followup.plate + ")" : ""} uchun bizning servisimizdan xizmat olgan edingiz. Bugun shu xizmat natijasini bilish uchun qo'ng'iroq qilyapman — hammasi yaxshimi, biror kamchilik yo'qmi?`;
+  return (
+    <Modal title="Kafolat nazorati qo'ng'irog'i" onClose={onClose}>
+      <div style={{ background: T.s3, borderRadius: 9, padding: "12px 14px", fontSize: 13, color: T.muted2, marginBottom: 16, lineHeight: 1.5 }}>
+        {script}
+      </div>
+      {!showNote ? (
+        <div style={{ display: "flex", gap: 10 }}>
+          <Btn variant="teal" onClick={() => onSave("yaxshi", "")} style={{ flex: 1 }}>
+            <Check size={15} /> Yaxshi
+          </Btn>
+          <Btn variant="red" onClick={() => setShowNote(true)} style={{ flex: 1 }}>
+            <AlertTriangle size={15} /> Muammo bor
+          </Btn>
+        </div>
+      ) : (
+        <>
+          <F label="Shikoyat / kamchilik matni">
+            <textarea style={{ ...iSt, minHeight: 80 }} value={note} onChange={(e) => setNote(e.target.value)} autoFocus
+              placeholder="Mijoz aytgan muammoni yozing..." />
+          </F>
+          <SaveBtn color={T.red} disabled={!note.trim()} onClick={() => onSave("muammo", note)}>
+            <AlertTriangle size={15} /> Shikoyat sifatida yuborish
+          </SaveBtn>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function ComplaintsTab({ data, patch }) {
+  const complaints = (data.complaints || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+  const newCount = complaints.filter((c) => c.status === "yangi").length;
+
+  function resolve(id) {
+    patch((d) => {
+      const c = (d.complaints || []).find((x) => x.id === id);
+      if (c) c.status = "hal_qilindi";
+      return d;
+    });
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18 }}>
+        <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Shikoyatlar</h2>
+        <p style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>
+          Jami {complaints.length} ta, {newCount} ta yangi
+        </p>
+      </div>
+      {complaints.length === 0 ? (
+        <div style={{ padding: "50px 20px", textAlign: "center", color: T.muted, background: T.s1, borderRadius: 12, border: `1px solid ${T.border}` }}>
+          <AlertTriangle size={32} color={T.border2} style={{ marginBottom: 12 }} />
+          <p style={{ fontSize: 13 }}>Shikoyat yo'q</p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {complaints.map((c) => (
+            <div key={c.id} style={{
+              background: T.s1, border: `1px solid ${c.status === "yangi" ? T.red + "50" : T.border}`,
+              borderLeft: `3px solid ${c.status === "yangi" ? T.red : T.teal}`,
+              borderRadius: 10, padding: "13px 16px",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>
+                    {c.carModel || "Mashina"} {c.plate && <span className="mo">· {c.plate}</span>}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: T.muted, display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                    <Clock size={11} /> {fmtDate(c.date)}
+                    {c.phone && <span className="mo"> · {c.phone}</span>}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: T.muted2 }}>{c.note}</div>
+                </div>
+                {c.status === "yangi" ? (
+                  <Btn size="sm" variant="teal" onClick={() => resolve(c.id)}>
+                    <Check size={12} /> Hal qilindi
+                  </Btn>
+                ) : (
+                  <Badge color={T.teal}>Hal qilindi</Badge>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3405,6 +3594,18 @@ function ServicesTab({ data, patch, rate, role, ustaName }) {
       if (!card) return d;
       Object.assign(card, fin, { status: "yakunlangan" });
       card.cashflowIds = []; // yakunlashda yaratilgan kassa yozuvlarini kuzatish — o'chirishda kerak
+
+      // Kafolat berilgan bo'lsa — kafolat nazorati qo'ng'iroqlari jadvalini boshlaymiz:
+      // birinchi (qoniqish) qo'ng'irog'i 5 kundan keyin, so'ngra 1,3,6,9...oylarda.
+      if (card.hasWarranty && num(card.warrantyMonths) > 0) {
+        d.warrantyFollowups = d.warrantyFollowups || [];
+        d.warrantyFollowups.push({
+          id: uid(), cardId: card.id, plate: card.plate, phone: card.phone, carModel: card.carModel,
+          serviceType: card.serviceType, warrantyMonths: num(card.warrantyMonths),
+          closedDate: todayISO(), stage: "5kun", monthIndex: -1,
+          dueDate: addDaysISO(todayISO(), 5), status: "kutilmoqda", history: [],
+        });
+      }
 
       const isNasiya = card.paymentType === "Nasiya (qarzga)";
       const isContracted = (d.contractedMasters || []).some((m) => sameName(m.name, card.usta));
