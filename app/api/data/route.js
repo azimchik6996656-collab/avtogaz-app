@@ -6,6 +6,14 @@ export const dynamic = "force-dynamic";
 
 const ROW_ID = "main";
 
+// Bu route optimistic-lock versiyasiga tayanadi — javob HECH QACHON keshlanmasligi
+// kerak, aks holda brauzer/CDN eski versiyani qaytarib, saqlashda doimiy
+// "Konflikt" xatosiga olib kelishi mumkin.
+const NO_STORE = { "Cache-Control": "no-store, no-cache, must-revalidate" };
+function json(body, init) {
+  return Response.json(body, { ...init, headers: { ...NO_STORE, ...(init && init.headers) } });
+}
+
 /**
  * MUHIM: bu route SERVICE ROLE kaliti bilan ishlaydi (RLS'ni chetlab o'tadi),
  * shuning uchun ruxsat tekshiruvi shu yerda, qo'lda amalga oshiriladi:
@@ -26,11 +34,11 @@ async function authorize(request) {
 
 export async function GET(request) {
   const auth = await authorize(request);
-  if (!auth.ok) return Response.json({ ok: false, error: auth.error }, { status: auth.status });
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
-  if (!key) return Response.json({ ok: false, error: "key kerak" }, { status: 400 });
+  if (!key) return json({ ok: false, error: "key kerak" }, { status: 400 });
 
   try {
     const supabase = serverClient();
@@ -46,14 +54,14 @@ export async function GET(request) {
     const value = bag[key];
     const version = Number(bag.__version || 0);
 
-    return Response.json({
+    return json({
       ok: true,
       value: value === undefined ? null : (typeof value === "string" ? value : JSON.stringify(value)),
       version,
       updatedAt: data?.updated_at || null,
     });
   } catch (e) {
-    return Response.json({ ok: false, error: String(e.message || e) }, { status: 500 });
+    return json({ ok: false, error: String(e.message || e) }, { status: 500 });
   }
 }
 
@@ -70,13 +78,13 @@ export async function GET(request) {
  */
 export async function PUT(request) {
   const auth = await authorize(request);
-  if (!auth.ok) return Response.json({ ok: false, error: auth.error }, { status: auth.status });
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   try {
     const body = await request.json();
     const { key, valueStr, expectedVersion } = body || {};
     if (!key || valueStr === undefined) {
-      return Response.json({ ok: false, error: "key va valueStr kerak" }, { status: 400 });
+      return json({ ok: false, error: "key va valueStr kerak" }, { status: 400 });
     }
 
     const parsed = JSON.parse(valueStr);
@@ -91,7 +99,7 @@ export async function PUT(request) {
     if (error) throw error;
 
     if (result?.conflict) {
-      return Response.json(
+      return json(
         {
           ok: false,
           conflict: true,
@@ -102,8 +110,8 @@ export async function PUT(request) {
       );
     }
 
-    return Response.json({ ok: true, version: result.version });
+    return json({ ok: true, version: result.version });
   } catch (e) {
-    return Response.json({ ok: false, error: String(e.message || e) }, { status: 500 });
+    return json({ ok: false, error: String(e.message || e) }, { status: 500 });
   }
 }
