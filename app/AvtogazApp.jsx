@@ -2329,15 +2329,16 @@ export default function App() {
 
       const localPayload = loadLocalBackup(); // {data, savedAt} yoki null
 
+      // MUHIM: "savedAt" har bir qurilmaning O'Z SOATIGA qarab yozilgan client vaqt belgisi —
+      // ikki xil qurilma orasida solishtirib bo'lmaydi (soatlar farq qilishi mumkin). Avval bu
+      // yerda "vaqti kattarog'i" solishtirilgan edi — bu haqiqiy xatoga olib kelgan: bir qurilma
+      // o'zining ESKI lokal nusxasini SERVERdagi yangi ma'lumotdan "yangiroq" deb hisoblab,
+      // ko'rsatib qolgan (va keyin uni serverga qayta yozib, boshqa qurilmaning yangilanishini
+      // yo'qotish xavfi tug'dirgan). Shuning uchun: server — yagona haqiqat manbai; server
+      // muvaffaqiyatli o'qilsa, HAR DOIM u ishlatiladi. Lokal nusxa faqat serverga umuman
+      // ulanib bo'lmagan holatda (masalan internet yo'q) zaxira sifatida ishlatiladi.
       let chosen = null, source = "empty";
-      if (serverPayload && localPayload) {
-        // Ikkalasi ham bor — vaqti kattarog'ini tanlaymiz
-        if (num(serverPayload.savedAt) >= num(localPayload.savedAt)) {
-          chosen = serverPayload.data; source = "server";
-        } else {
-          chosen = localPayload.data; source = "local";
-        }
-      } else if (serverPayload) {
+      if (serverPayload) {
         chosen = serverPayload.data; source = "server";
       } else if (localPayload) {
         chosen = localPayload.data; source = "local";
