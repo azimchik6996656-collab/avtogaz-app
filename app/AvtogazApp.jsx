@@ -4120,7 +4120,9 @@ function ServicesTab({ data, patch, rate, role, ustaName }) {
           cols={[
             { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
             { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
-            { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
+            ...(!isUsta ? [
+              { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
+            ] : []),
             { k: "carModel", h: "Mashina" },
             { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
             { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
@@ -4269,7 +4271,7 @@ function CardDetailModal({ card, isUsta, onClose }) {
         </div>
         <div style={{ background: T.s3, borderRadius: 8, padding: "9px 13px" }}>
           <div style={{ fontSize: 10, color: T.muted, textTransform: "uppercase" }}>Telefon</div>
-          <div className="mo" style={{ fontSize: 13, fontWeight: 600 }}>{card.phone || "—"}</div>
+          <div className="mo" style={{ fontSize: 13, fontWeight: 600 }}>{isUsta ? "Berkitilgan" : (card.phone || "—")}</div>
         </div>
         <div style={{ background: T.s3, borderRadius: 8, padding: "9px 13px" }}>
           <div style={{ fontSize: 10, color: T.muted, textTransform: "uppercase" }}>Usta</div>
