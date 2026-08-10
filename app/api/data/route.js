@@ -60,6 +60,13 @@ export async function GET(request) {
 /**
  * PUT body: { key, valueStr, expectedVersion }
  * Optimistic lock: expectedVersion serverdagi bilan mos kelmasa 409 (conflict).
+ *
+ * MUHIM: tekshirish va yozish "save_app_data" SQL funksiyasi ichida, "for update"
+ * satr qulfi bilan, BIR TRANZAKSIYADA amalga oshadi. Avval bu yerda alohida
+ * SELECT so'ngra alohida UPSERT bo'lgan — ular orasida boshqa so'rov kirib qolsa
+ * (masalan avtomatik saqlash va qo'lda "Saqlash" tugmasi bir vaqtda bosilsa),
+ * ikkisi ham bir xil eski versiyani "joriy" deb o'qib, versiya raqami joyida
+ * qolib, biri ikkinchisining yozganini sezmasdan bosib yuborishi mumkin edi.
  */
 export async function PUT(request) {
   const auth = await authorize(request);
@@ -72,34 +79,30 @@ export async function PUT(request) {
       return Response.json({ ok: false, error: "key va valueStr kerak" }, { status: 400 });
     }
 
+    const parsed = JSON.parse(valueStr);
     const supabase = serverClient();
-    const { data: existing, error: readErr } = await supabase
-      .from("app_data")
-      .select("data")
-      .eq("id", ROW_ID)
-      .single();
-    if (readErr && readErr.code !== "PGRST116") throw readErr;
+    const { data: result, error } = await supabase.rpc("save_app_data", {
+      p_id: ROW_ID,
+      p_key: key,
+      p_value: parsed,
+      p_expected_version:
+        expectedVersion === undefined || expectedVersion === null ? null : Number(expectedVersion),
+    });
+    if (error) throw error;
 
-    const current = existing?.data || {};
-    const serverVersion = Number(current.__version || 0);
-
-    if (expectedVersion !== undefined && expectedVersion !== null && Number(expectedVersion) !== serverVersion) {
+    if (result?.conflict) {
       return Response.json(
-        { ok: false, conflict: true, serverVersion, message: "Boshqa qurilma ma'lumotni yangilagan. Qayta yuklang." },
+        {
+          ok: false,
+          conflict: true,
+          serverVersion: result.serverVersion,
+          message: "Boshqa qurilma ma'lumotni yangilagan. Qayta yuklang.",
+        },
         { status: 409 }
       );
     }
 
-    const parsed = JSON.parse(valueStr);
-    const nextVersion = serverVersion + 1;
-    const updated = { ...current, [key]: parsed, __version: nextVersion };
-
-    const { error } = await supabase
-      .from("app_data")
-      .upsert({ id: ROW_ID, data: updated, updated_at: new Date().toISOString() });
-    if (error) throw error;
-
-    return Response.json({ ok: true, version: nextVersion });
+    return Response.json({ ok: true, version: result.version });
   } catch (e) {
     return Response.json({ ok: false, error: String(e.message || e) }, { status: 500 });
   }
