@@ -9105,8 +9105,12 @@ function OwnerMonthlyReport({ data, rate }) {
   const cf = data.cashflow || [];
   const monthCF = cf.filter((c) => (c.date || "").startsWith(monthFilter));
 
-  const monthIncomeEntries = monthCF
-    .filter((c) => c.type === "kirim" && c.paymentType !== "Karta (Click/Payme)" && c.paymentType !== "Nasiya (qarzga)");
+  // MUHIM: kirim CHIQIM bilan bir xil qoidada hisoblanishi kerak — pastdagi chiqim
+  // (supplierPay, ustaPay va h.k.) to'lov turidan qat'i nazar TO'LIQ hisoblanadi.
+  // Avval kirim esa Karta/Nasiya to'lovlarini chiqarib tashlagan edi — natijada shu
+  // turdagi chiqimlar to'liq ayirilib, ularga mos kirim esa umuman qo'shilmagan,
+  // "Sof foyda" haqiqiydan sezilarli darajada past (yolg'on minus) chiqib qolgan edi.
+  const monthIncomeEntries = monthCF.filter((c) => c.type === "kirim");
   const monthIncome = monthIncomeEntries.reduce((s, c) => s + num(c.amountSum), 0);
   // Valyuta bo'yicha ajratib ko'rsatish uchun — SOF FOYDA hisobiga ta'sir qilmaydi (u SO'M ekvivalentda hisoblanadi)
   const monthIncomeSUM = monthIncomeEntries.filter((c) => c.currency !== "USD").reduce((s, c) => s + num(c.amountSum), 0);
