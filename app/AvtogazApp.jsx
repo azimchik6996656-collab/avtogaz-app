@@ -88,6 +88,7 @@ const emptyData = () => ({
   inventories: [], // sklad inventarizatsiya yozuvlari
   inventoryRequests: [], // Rahbar <-> Kassir inventarizatsiya kelishuv jarayoni
   currencyExchanges: [], // USD <-> SO'M ayirboshlash yozuvlari (kirim/chiqim umumiy tushum/foydaga qo'shilmaydi — faqat kassa balansiga ta'sir qiladi)
+  auditLog: [], // {id, ts, actor, note} — kim, qachon, nima o'zgartirgani (faqat muhim harakatlar, oxirgi 300 tasi)
 });
 
 /* ═══════════════════════════════════════════════════
@@ -104,6 +105,54 @@ const fmtSum = (n) => Math.round(num(n)).toLocaleString("ru-RU").replace(/,/g, "
 const fmtUsd = (n) => "$" + (Math.round(num(n) * 100) / 100).toLocaleString("en-US");
 const toSum = (a, cur, rate) => (cur === "USD" ? num(a) * rate : num(a));
 const toUsd = (a, cur, rate) => (cur === "USD" ? num(a) : rate ? num(a) / rate : 0);
+
+// Audit log uchun: ikkita "data" holati orasidagi FARQNI aniqlaydi va inson o'qiy oladigan
+// qisqa xulosa qatorlarini qaytaradi. Har bir alohida patch() chaqiruvi (ya'ni har bir
+// foydalanuvchi harakati) uchun bitta marta chaqiriladi — shu tufayli o'nlab turli joyda
+// cashflow.unshift(...) chaqirilsa ham, HAR BIRINI alohida "label" bilan belgilash shart
+// emas: farq shu yerda, markazlashgan holda, avtomatik aniqlanadi.
+function summarizeAuditDiff(before, after) {
+  const lines = [];
+
+  const beforeCF = before.cashflow || [], afterCF = after.cashflow || [];
+  const beforeCFIds = new Set(beforeCF.map((c) => c.id));
+  const afterCFIds = new Set(afterCF.map((c) => c.id));
+  const addedCF = afterCF.filter((c) => !beforeCFIds.has(c.id));
+  const removedCF = beforeCF.filter((c) => !afterCFIds.has(c.id));
+  if (addedCF.length === 1) {
+    const c = addedCF[0];
+    lines.push(`${c.type === "kirim" ? "Kirim" : "Chiqim"}: ${c.category || "—"} — ${fmtSum(c.amountSum)}${c.note ? ` (${c.note})` : ""}`);
+  } else if (addedCF.length > 1) {
+    const inc = addedCF.filter((c) => c.type === "kirim").reduce((s, c) => s + num(c.amountSum), 0);
+    const exp = addedCF.filter((c) => c.type === "chiqim").reduce((s, c) => s + num(c.amountSum), 0);
+    lines.push(`+${addedCF.length} ta kassa yozuvi qo'shildi (kirim ${fmtSum(inc)}, chiqim ${fmtSum(exp)})`);
+  }
+  if (removedCF.length) lines.push(`${removedCF.length} ta kassa yozuvi o'chirildi`);
+
+  const beforeEx = before.currencyExchanges || [], afterEx = after.currencyExchanges || [];
+  if (afterEx.length > beforeEx.length) lines.push(`Valyuta ayirboshlash qo'shildi (+${afterEx.length - beforeEx.length})`);
+  if (afterEx.length < beforeEx.length) lines.push(`Valyuta ayirboshlash o'chirildi (-${beforeEx.length - afterEx.length})`);
+
+  const beforeCards = before.serviceCards || [], afterCards = after.serviceCards || [];
+  const beforeCardMap = new Map(beforeCards.map((c) => [c.id, c]));
+  const afterCardIds = new Set(afterCards.map((c) => c.id));
+  afterCards.forEach((c) => {
+    const b = beforeCardMap.get(c.id);
+    if (b && cardStatus(b) === "ochiq" && cardStatus(c) !== "ochiq") {
+      lines.push(`Karta yopildi: ${c.plate || "—"} — ${fmtSum(c.finalTotal)}`);
+    }
+  });
+  const newCards = afterCards.filter((c) => !beforeCardMap.has(c.id));
+  if (newCards.length) lines.push(`${newCards.length} ta yangi karta ochildi`);
+  const removedCards = beforeCards.filter((c) => !afterCardIds.has(c.id));
+  if (removedCards.length) lines.push(`${removedCards.length} ta karta o'chirildi`);
+
+  const beforePins = JSON.stringify((before.settings || {}).pins || {});
+  const afterPins = JSON.stringify((after.settings || {}).pins || {});
+  if (beforePins !== afterPins) lines.push("PIN kod(lar) o'zgartirildi");
+
+  return lines;
+}
 
 function cardPartsCost(card) { return (card.parts || []).reduce((s, p) => s + num(p.lineTotal), 0); }
 function cardUstaFeeSum(card) { return (card.ustaFeeEntries || []).reduce((s, e) => s + num(e.amount), 0); }
@@ -2434,7 +2483,17 @@ export default function App() {
     if (role === "hamkor" && !partnerId) setRole(null);
   }, [role, ustaName, supplierName, partnerId]);
 
-  const patch = useCallback((fn) => setData((d) => fn(JSON.parse(JSON.stringify(d)))), []);
+  const patch = useCallback((fn) => setData((d) => {
+    const before = d;
+    const next = fn(JSON.parse(JSON.stringify(d)));
+    const diffLines = summarizeAuditDiff(before, next);
+    if (diffLines.length) {
+      const actor = ustaName || supplierName || partnerId || role || "noma'lum";
+      const newEntries = diffLines.map((note) => ({ id: uid(), ts: Date.now(), actor, note }));
+      next.auditLog = [...(next.auditLog || []), ...newEntries].slice(-300);
+    }
+    return next;
+  }), [role, ustaName, supplierName, partnerId]);
   const rate = data.settings.usdRate || 12650;
 
   const allTabs = [
@@ -2600,11 +2659,18 @@ export default function App() {
             role={role} rate={rate} patch={patch} data={data}
             onImport={(p) => {
               const next = { ...emptyData(), ...p, settings: { ...emptyData().settings, ...(p.settings || {}) } };
+              const actor = ustaName || supplierName || partnerId || role || "noma'lum";
+              next.auditLog = [
+                ...(data.auditLog || []),
+                { id: uid(), ts: Date.now(), actor, note: `JSON import qilindi — HAMMA MA'LUMOT ALMASHTIRILDI (${(p.cashflow || []).length} kassa yozuvi, ${(p.serviceCards || []).length} karta)` },
+              ].slice(-300);
               setData(next);
               saveLocalBackup(next);
             }}
             onResetAll={() => {
               const fresh = emptyData();
+              const actor = ustaName || supplierName || partnerId || role || "noma'lum";
+              fresh.auditLog = [{ id: uid(), ts: Date.now(), actor, note: "Butun tizim tozalandi (reset)" }];
               setData(fresh);
               saveLocalBackup(fresh);
               saveToServer(fresh);
@@ -9095,7 +9161,49 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
       <div style={{ marginTop: 18 }}>
         <OwnerMonthlyReport data={data} rate={rate} />
       </div>
+
+      <div style={{ marginTop: 18 }}>
+        <AuditLogCard auditLog={data.auditLog} />
+      </div>
     </div>
+  );
+}
+
+function AuditLogCard({ auditLog }) {
+  const [expanded, setExpanded] = useState(false);
+  const entries = [...(auditLog || [])].reverse();
+  const visible = expanded ? entries : entries.slice(0, 15);
+
+  return (
+    <Card title={`Faoliyat tarixi (${entries.length})`} pad={false}>
+      {entries.length === 0 ? (
+        <p style={{ padding: 16, fontSize: 12.5, color: T.muted }}>Hali yozuv yo'q.</p>
+      ) : (
+        <>
+          <div style={{ maxHeight: 480, overflowY: "auto" }}>
+            {visible.map((e) => (
+              <div key={e.id} style={{
+                display: "flex", justifyContent: "space-between", gap: 12,
+                padding: "10px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5,
+              }}>
+                <span style={{ flex: 1 }}>{e.note}</span>
+                <span style={{ color: T.muted, whiteSpace: "nowrap" }}>
+                  {e.actor} · {new Date(e.ts).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+            ))}
+          </div>
+          {entries.length > 15 && (
+            <button onClick={() => setExpanded((s) => !s)} style={{
+              width: "100%", padding: 11, background: "none", border: "none", cursor: "pointer",
+              color: T.flame, fontSize: 12.5, fontWeight: 600,
+            }}>
+              {expanded ? "Kamroq ko'rsatish" : `Barchasini ko'rsatish (${entries.length})`}
+            </button>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 
