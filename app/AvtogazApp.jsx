@@ -8724,6 +8724,10 @@ function RahbarPanelTab({ data, patch, rate }) {
       </div>
 
       <OwnerMonthlyReport data={data} rate={rate} />
+
+      <div style={{ marginTop: 18 }}>
+        <AuditLogCard auditLog={data.auditLog} />
+      </div>
     </div>
   );
 }
@@ -9160,10 +9164,6 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
 
       <div style={{ marginTop: 18 }}>
         <OwnerMonthlyReport data={data} rate={rate} />
-      </div>
-
-      <div style={{ marginTop: 18 }}>
-        <AuditLogCard auditLog={data.auditLog} />
       </div>
     </div>
   );
