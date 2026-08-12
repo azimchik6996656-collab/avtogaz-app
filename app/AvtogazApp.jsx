@@ -5231,10 +5231,10 @@ function WarehouseTab({ data, patch, rate, role }) {
         <div style={{ display: "flex", gap: 8 }}>
           {!isReadOnly && <Btn variant="ghost" onClick={() => setSaleOpen(true)}><ShoppingCart size={14} /> Ulgurji savdo</Btn>}
           {role === "azim" && (
-            <Btn variant="gold" onClick={() => setInvReqOpen(true)}><Calendar size={14} /> Inventarizatsiya rejalash</Btn>
+            <Btn variant="gold" onClick={() => setInvReqOpen(true)}><Calendar size={14} /> Inventarizatsiya so'rovi (kassirga)</Btn>
           )}
           {(role === "azim" || role === "kassir") && (
-            <Btn variant="ghost" onClick={() => setInvOpen(true)}><ShieldCheck size={14} /> Inventarizatsiya</Btn>
+            <Btn variant="ghost" onClick={() => setInvOpen(true)}><ShieldCheck size={14} /> Inventarizatsiya qilish (hozir)</Btn>
           )}
           {!isReadOnly && <Btn onClick={() => setStockOpen(true)}><Plus size={15} /> Kirim qilish</Btn>}
         </div>
