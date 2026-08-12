@@ -1753,6 +1753,58 @@ function Sparkline({ values, color }) {
   );
 }
 
+// Yuqori menyu tor ekranda gorizontal skroll bilan ko'rinadi — bu o'z-o'zidan
+// ravshan bo'lmasligi mumkin. Shu sababli hali ko'rinmagan tugmalar borligini
+// chetlarda xira "soya" bilan ko'rsatamiz (Gmail/Linear'dagi kabi).
+function ScrollableTabs({ tabs, tab, setTab }) {
+  const scrollRef = useRef(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const updateFade = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  };
+
+  useEffect(() => {
+    updateFade();
+    window.addEventListener("resize", updateFade);
+    return () => window.removeEventListener("resize", updateFade);
+  }, [tabs.length]);
+
+  return (
+    <div style={{ position: "relative", background: T.s1, borderBottom: `1px solid ${T.border}` }}>
+      <div ref={scrollRef} onScroll={updateFade} style={{ display: "flex", padding: "8px 20px", overflowX: "auto", gap: 4 }}>
+        {tabs.map(({ id, label, Icon }) => {
+          const a = tab === id;
+          return (
+            <button key={id} onClick={() => setTab(id)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", border: "none", borderRadius: 8,
+              cursor: "pointer", fontSize: 12.5, fontWeight: a ? 700 : 500,
+              color: a ? T.flame : T.muted2,
+              background: a ? T.flameD : "transparent",
+              whiteSpace: "nowrap", transition: "background .12s, color .12s",
+            }}>
+              <Icon size={14} /> {label}
+            </button>
+          );
+        })}
+      </div>
+      {canLeft && <div style={{
+        position: "absolute", left: 0, top: 0, bottom: 0, width: 28,
+        background: `linear-gradient(90deg, ${T.s1}, transparent)`, pointerEvents: "none",
+      }} />}
+      {canRight && <div style={{
+        position: "absolute", right: 0, top: 0, bottom: 0, width: 28,
+        background: `linear-gradient(270deg, ${T.s1}, transparent)`, pointerEvents: "none",
+      }} />}
+    </div>
+  );
+}
+
 function Stat({ label, value, sub, color, Icon, spark }) {
   return (
     <div className="card-shadow stat-card" style={{
@@ -2714,26 +2766,7 @@ export default function App() {
       </header>
 
       {/* TABS */}
-      <div style={{
-        background: T.s1, borderBottom: `1px solid ${T.border}`,
-        display: "flex", padding: "8px 20px", overflowX: "auto", gap: 4,
-      }}>
-        {tabs.map(({ id, label, Icon }) => {
-          const a = tab === id;
-          return (
-            <button key={id} onClick={() => setTab(id)} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 14px", border: "none", borderRadius: 8,
-              cursor: "pointer", fontSize: 12.5, fontWeight: a ? 700 : 500,
-              color: a ? T.flame : T.muted2,
-              background: a ? T.flameD : "transparent",
-              whiteSpace: "nowrap", transition: "background .12s, color .12s",
-            }}>
-              <Icon size={14} /> {label}
-            </button>
-          );
-        })}
-      </div>
+      <ScrollableTabs tabs={tabs} tab={tab} setTab={setTab} />
 
       {/* CONTENT */}
       <div style={{ padding: "22px 20px", maxWidth: 1400, margin: "0 auto" }} className="fi">
@@ -4088,6 +4121,14 @@ function ServicesTab({ data, patch, rate, role, ustaName }) {
   const pendingRequests = (data.productRequests || []).slice().reverse();
   const pendingConfirmCards = data.serviceCards.filter((c) => c.pendingConfirm && cardStatus(c) === "ochiq");
 
+  // Oxirgi 7 kunlik kunlik foyda tendensiyasi — "Jami foyda" mini-grafigi uchun.
+  const last7Profit = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const iso = d.toISOString().slice(0, 10);
+    return closedCards.filter((c) => c.date === iso).reduce((s, c) => s + num(c.profitSum), 0);
+  });
+
   function confirmCard(cardId) {
     patch((d) => {
       const card = d.serviceCards.find((c) => c.id === cardId);
@@ -4112,7 +4153,7 @@ function ServicesTab({ data, patch, rate, role, ustaName }) {
         <Stat label="Ochiq kartalar" value={openCards.length + " ta"} color={T.gold} Icon={Clock} />
         <Stat label="Yakunlangan" value={closedCards.length + " ta"} color={T.blue} Icon={Car} />
         {!hideFinance && <Stat label="Jami tushum" value={fmtSum(totalRevenue)} sub={fmtUsd(totalRevenue / rate)} color={T.teal} Icon={Wallet} />}
-        {!hideFinance && <Stat label="Jami foyda" value={fmtSum(totalProfit)} color={T.flame} Icon={TrendingUp} />}
+        {!hideFinance && <Stat label="Jami foyda" value={fmtSum(totalProfit)} color={T.flame} Icon={TrendingUp} spark={last7Profit} />}
       </div>
 
       {/* USTA YARATGAN, TASDIQ KUTAYOTGAN KARTALAR — faqat Admin/Kassir ko'radi */}
@@ -5977,6 +6018,17 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
   const debts = supplierDebts(data);
   const totalDebt = debts.reduce((s, d) => s + Math.max(0, d.debtSum), 0);
 
+  // Oxirgi 7 kunlik sof kassa harakati (naqd, SO'M) — "Kassadagi SO'M" mini-grafigi uchun.
+  const last7NetKassa = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const iso = d.toISOString().slice(0, 10);
+    const dayCF = cashFlow.filter((c) => c.date === iso && c.currency !== "USD");
+    const inc = dayCF.filter((c) => c.type === "kirim").reduce((s, c) => s + num(c.amountSum), 0);
+    const exp = dayCF.filter((c) => c.type === "chiqim").reduce((s, c) => s + num(c.amountSum), 0);
+    return inc - exp;
+  });
+
   const cfSearchNorm = cfSearch.trim().toLowerCase();
   const cfFiltered = cfSearchNorm
     ? cf.filter((c) => [c.note, c.category, c.supplier, c.paymentType, fmtDate(c.date)].filter(Boolean).some((v) => String(v).toLowerCase().includes(cfSearchNorm)))
@@ -6135,7 +6187,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 13, marginBottom: 20 }}>
-        <Stat label="Kassadagi SO'M" value={fmtSum(incomeSUM - expenseSUM + exchangeSumNet)} color={T.flame} Icon={Wallet} />
+        <Stat label="Kassadagi SO'M" value={fmtSum(incomeSUM - expenseSUM + exchangeSumNet)} color={T.flame} Icon={Wallet} spark={last7NetKassa} />
         <Stat label="Kassadagi USD" value={fmtUsd(incomeUSD - expenseUSD + exchangeUsdNet)} color={T.gold} Icon={Wallet} />
         <Stat label="Click/Payme savdosi" value={fmtSum(clickTotal)} sub={`Kirim: ${fmtSum(clickIncome)} · Chiqim: ${fmtSum(clickExpense)} · balansdan tashqari`} color={T.purple} Icon={TrendingUp} />
         <Stat label="Nasiya qarz (qolgan)" value={fmtSum(nasiyaTotal)} sub={`${unpaidNasiya.length} ta to'lanmagan · balansdan tashqari`} color={T.gold} Icon={Clock} />
@@ -9311,8 +9363,14 @@ function OwnerMonthlyReport({ data, rate }) {
     .filter((c) => c.type === "chiqim" && !["Ta'minotchiga to'lov", "Usta xizmat haqi", "Hujjat xarajati", "Ish haqi", "Rahbarga chiqim", "Logistika", "Pitaniya"].includes(c.category))
     .reduce((s, c) => s + num(c.amountSum), 0);
 
-  const totalExpense = supplierPay + ustaPay + docFeePay + employeePay + rahbarPay + logistikaPay + pitaniyaPay + otherExpense;
-  const netProfit = monthIncome - totalExpense;
+  // MUHIM: "Rahbarga chiqim" — bu rahbarning ALLAQACHON topilgan foydadan shaxsan
+  // olgan puli, biznes xarajati emas (ijaraga, ta'minotchiga to'lov kabi emas).
+  // Shuning uchun u "Sof foyda"ni HISOBLASHDA emas — undan keyin, alohida
+  // "qancha olindi" sifatida ko'rsatiladi. Aks holda rahbar o'z puliga tegishi
+  // biznesning haqiqiy foydasi kamaygandek ko'rsatib qo'yardi.
+  const businessExpense = supplierPay + ustaPay + docFeePay + employeePay + logistikaPay + pitaniyaPay + otherExpense;
+  const netProfit = monthIncome - businessExpense;
+  const afterOwnerDraw = netProfit - rahbarPay;
 
   const months = [...new Set([currentMonthKey(), ...cf.map((c) => (c.date || "").slice(0, 7)).filter(Boolean)])].sort().reverse();
 
@@ -9324,9 +9382,10 @@ function OwnerMonthlyReport({ data, rate }) {
     ["Logistika", -logistikaPay, T.red, false],
     ["Pitaniya", -pitaniyaPay, T.red, false],
     ["Hujjat xarajatlari", -docFeePay, T.red, false],
-    ["Rahbarga chiqim", -rahbarPay, T.gold, false],
     ["Boshqa xarajatlar", -otherExpense, T.red, false],
-    ["SOF FOYDA", netProfit, netProfit >= 0 ? T.teal : T.red, true],
+    ["SOF FOYDA (biznes)", netProfit, netProfit >= 0 ? T.teal : T.red, true],
+    ["— shundan Rahbar oldi", -rahbarPay, T.gold, false],
+    ["Qolgan foyda", afterOwnerDraw, afterOwnerDraw >= 0 ? T.teal : T.red, true],
   ];
 
   return (
