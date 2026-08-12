@@ -1733,7 +1733,27 @@ function DateGroupedList({ rows, cols, empty, amountFn }) {
   );
 }
 
-function Stat({ label, value, sub, color, Icon }) {
+// Oxirgi N kunlik tendensiyani ko'rsatuvchi mini-chiziq — tashqi kutubxonasiz,
+// oddiy inline SVG. Qiymatlar musbat/manfiy bo'lishi mumkin (masalan kunlik sof foyda).
+function Sparkline({ values, color }) {
+  if (!values || values.length < 2) return null;
+  const w = 60, h = 22, pad = 2;
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const points = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (w - pad * 2);
+    const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} style={{ display: "block", flexShrink: 0 }}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+    </svg>
+  );
+}
+
+function Stat({ label, value, sub, color, Icon, spark }) {
   return (
     <div className="card-shadow stat-card" style={{
       background: T.s1, border: `1px solid ${T.border}`, borderRadius: 12,
@@ -1754,7 +1774,12 @@ function Stat({ label, value, sub, color, Icon }) {
         </div>}
       </div>
       <div className="mo bc" style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1.1, letterSpacing: "-.01em" }}>{value}</div>
-      {sub && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 5, lineHeight: 1.4 }}>{sub}</div>}
+      {(sub || spark) && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 5 }}>
+          {sub && <div style={{ fontSize: 10.5, color: T.muted, lineHeight: 1.4 }}>{sub}</div>}
+          {spark && <Sparkline values={spark} color={color} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -2786,6 +2811,34 @@ function DashboardTab({ data, patch, rate, setTab }) {
 
   const waitingLeads = (data.leads || []).filter((l) => l.stage === "birinchi" || l.stage === "nedozvon" || l.stage === "kelishildi");
   const supDebt = supplierDebts(data).reduce((s, d) => s + Math.max(0, d.debtSum), 0);
+  const pendingConfirmCards = data.serviceCards.filter((c) => c.pendingConfirm && cardStatus(c) === "ochiq");
+
+  // Oxirgi 7 kunlik sof kassa harakati (kunlik kirim - chiqim, naqd, SO'M) — "Kassa balansi"
+  // ostidagi mini-grafik uchun. Faqat trend ko'rsatish maqsadida, aniq hisob emas.
+  const last7Net = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const iso = d.toISOString().slice(0, 10);
+    const dayCF = data.cashflow.filter((c) => c.date === iso && isCashEntry(c) && c.currency !== "USD");
+    const inc = dayCF.filter((c) => c.type === "kirim").reduce((s, c) => s + num(c.amountSum), 0);
+    const exp = dayCF.filter((c) => c.type === "chiqim").reduce((s, c) => s + num(c.amountSum), 0);
+    return inc - exp;
+  });
+
+  const attentionItems = [
+    pendingConfirmCards.length > 0 && {
+      text: `${pendingConfirmCards.length} ta usta ochgan karta tasdiq kutmoqda`,
+      color: T.purple, onClick: () => setTab("services"),
+    },
+    supDebt > 0 && {
+      text: `Ta'minotchiga ${fmtSum(supDebt)} qarz bor`,
+      color: T.red, onClick: () => setTab("debtbook"),
+    },
+    waitingLeads.length > 0 && {
+      text: `${waitingLeads.length} ta mijoz javob kutmoqda`,
+      color: T.gold, onClick: () => setTab("callcenter"),
+    },
+  ].filter(Boolean);
 
   function closeDay() {
     patch((d) => {
@@ -2820,6 +2873,23 @@ function DashboardTab({ data, patch, rate, setTab }) {
         )}
       </div>
 
+      {attentionItems.length > 0 && (
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16,
+          background: T.s1, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px",
+        }}>
+          <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: T.muted, display: "flex", alignItems: "center", gap: 5, marginRight: 4 }}>
+            <AlertTriangle size={12} color={T.gold} /> Diqqat talab qiladi
+          </span>
+          {attentionItems.map((it, i) => (
+            <button key={i} onClick={it.onClick} style={{
+              background: it.color + "14", border: `1px solid ${it.color}30`, borderRadius: 20,
+              padding: "5px 12px", fontSize: 11.5, fontWeight: 600, color: it.color, cursor: "pointer",
+            }}>{it.text}</button>
+          ))}
+        </div>
+      )}
+
       {/* MAIN STATS */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 13, marginBottom: 20 }}>
         <Stat label="Bugungi kartalar" value={todayCards.length + " ta"}
@@ -2827,7 +2897,7 @@ function DashboardTab({ data, patch, rate, setTab }) {
         <Stat label="Bugungi kirim" value={fmtSum(todayIncome)}
           sub={`Chiqim: ${fmtSum(todayExpense)}`} color={T.teal} Icon={TrendingUp} />
         <Stat label="Kassa balansi" value={fmtSum(kassaBalance)}
-          sub={fmtUsd(kassaBalance / rate)} color={T.gold} Icon={Wallet} />
+          sub={fmtUsd(kassaBalance / rate)} color={T.gold} Icon={Wallet} spark={last7Net} />
         <Stat label="Usta haqi (to'lanmagan)" value={fmtSum(ustaPendingTotal)}
           sub={`${ustaPending.length} ta usta`} color={T.red} Icon={Wrench} />
       </div>
