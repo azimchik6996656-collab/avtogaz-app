@@ -155,6 +155,18 @@ function summarizeAuditDiff(before, after) {
   return lines;
 }
 
+// Kirill ismni lotin transliteratsiyasiga o'giradi — xodimlar ismini ba'zan kirillcha,
+// ba'zan lotincha yozib qo'yishadi (masalan "Азим" / "Azim"), shu ikkalasini ham
+// bir xil deb topish uchun ishlatiladi.
+const CYRILLIC_TO_LATIN = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i", й: "y",
+  к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f",
+  х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+};
+function translitCyrillic(s) {
+  return String(s || "").split("").map((ch) => CYRILLIC_TO_LATIN[ch] ?? ch).join("");
+}
+
 function cardPartsCost(card) { return (card.parts || []).reduce((s, p) => s + num(p.lineTotal), 0); }
 function cardUstaFeeSum(card) { return (card.ustaFeeEntries || []).reduce((s, e) => s + num(e.amount), 0); }
 function cardStatus(card) { return card.status || "yakunlangan"; }
@@ -8206,13 +8218,20 @@ function EmployeesTab({ data, patch, rate }) {
   // hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
   // 2026-08-03 dan boshlab — bundan oldingi yozuvlar o'tgan oyning haqi sifatida allaqachon
   // hisoblangan edi (2026-08 gacha bo'lgan oylar uchun bu cheklov qo'llanmaydi).
-  const AZIM_DRAW_CUTOFF = "2026-08-03";
-  const drawFrom = monthFilter === "2026-08" ? AZIM_DRAW_CUTOFF : monthFilter + "-01";
-  const azimNameKey = (employeesRaw.find((e) => e.id === azimEmployeeId)?.name || "").split(" ")[0].toLowerCase();
-  const azimDrawEntries = azimNameKey
+  // Bir martalik istisno: 27-28 iyuldagi ikkita yozuv ("Sales manager oyligi (2026-07)")
+  // ham aslida avgust davriga tegishli ekan (oylik 25-kuni yopilgan) — shuning uchun
+  // faqat 2026-08 uchun boshlanish sanasi 27-iyulga suriladi.
+  const drawFrom = monthFilter === "2026-08" ? "2026-07-27" : monthFilter + "-01";
+  const drawTo = monthFilter === "2026-08" ? "2026-08-31" : monthFilter + "-31";
+  const azimNameRaw = (employeesRaw.find((e) => e.id === azimEmployeeId)?.name || "").split(" ")[0].toLowerCase();
+  const azimNameKeys = azimNameRaw ? [...new Set([azimNameRaw, translitCyrillic(azimNameRaw)])] : [];
+  const azimDrawEntries = azimNameKeys.length
     ? (data.cashflow || [])
-        .filter((c) => c.category === "Ish haqi" && c.date >= drawFrom && c.date.startsWith(monthFilter)
-          && (c.note || "").toLowerCase().includes(azimNameKey))
+        .filter((c) => c.category === "Ish haqi" && c.date >= drawFrom && c.date <= drawTo
+          && azimNameKeys.some((k) => (c.note || "").toLowerCase().includes(k))
+          // "... kassa iyulgacha yopildi" — bu iyul oyini yopish (eski hisob) yozuvi,
+          // yangi avgust avansi emas, shuning uchun bu yerga hisoblanmaydi.
+          && !(c.note || "").toLowerCase().includes("йопилди"))
         .sort((a, b) => a.date.localeCompare(b.date))
     : [];
   const monthAzimDraws = azimDrawEntries.reduce((s, c) => s + num(c.amountSum), 0);
