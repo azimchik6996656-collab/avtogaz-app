@@ -1985,6 +1985,24 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (busy || lockout.locked) return;
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        press(e.key);
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        setDigits((s) => s.slice(0, -1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (digits.length >= 4) submit(digits);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, lockout.locked, digits]);
+
   async function submit(pin) {
     if (busy) return;
     const lo = getLockoutState();
