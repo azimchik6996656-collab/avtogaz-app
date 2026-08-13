@@ -950,6 +950,106 @@ function RateChangeModal({ rate, onClose, onSave }) {
   );
 }
 
+function StaffPinModal({ onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [staff, setStaff] = useState([]);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(null); // email
+  const [pinInput, setPinInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const authHeader = await authClient.getAuthHeader();
+      const res = await fetch("/api/staff", { headers: authHeader ? { Authorization: authHeader } : {} });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || "Ro'yxatni yuklab bo'lmadi");
+      setStaff(json.staff || []);
+    } catch (e) {
+      setError(String(e?.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function savePin(email, pin) {
+    setSaving(true);
+    setError("");
+    try {
+      const authHeader = await authClient.getAuthHeader();
+      const res = await fetch("/api/staff/set-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
+        body: JSON.stringify({ email, pin }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || "Saqlanmadi");
+      setEditing(null);
+      setPinInput("");
+      await load();
+    } catch (e) {
+      setError(String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Xodimlar — 2-bosqich PIN" onClose={onClose} wide>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Google orqali kirgandan keyin, agar xodimga shaxsiy PIN o'rnatilgan bo'lsa, kirish uchun
+        yana shu PIN ham so'raladi. Bu — kompyuterda Google hisobingiz ochiq turgan payt boshqa
+        birov ilovaga kirib qolishining oldini oladi.
+      </p>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 30 }}><Loader2 className="spin" size={22} color={T.flame} /></div>
+      ) : error ? (
+        <p style={{ fontSize: 12.5, color: T.red }}>{error}</p>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {staff.map((s) => (
+            <div key={s.email} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              background: T.s3, borderRadius: 10, padding: "10px 14px",
+            }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{s.fullName || s.email}</div>
+                <div style={{ fontSize: 11, color: T.muted }}>{ROLE_LABELS[s.role] || s.role} · {s.email}</div>
+              </div>
+              {editing === s.email ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    type="text" inputMode="numeric" maxLength={8} autoFocus
+                    style={{ ...iSt, width: 90 }}
+                    value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                    placeholder="4-8 raqam"
+                  />
+                  <Btn size="sm" variant="teal" disabled={saving || pinInput.length < 4} onClick={() => savePin(s.email, pinInput)}>Saqlash</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => { setEditing(null); setPinInput(""); }}>Bekor</Btn>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <Badge color={s.hasPin ? T.teal : T.muted}>{s.hasPin ? "PIN bor" : "PIN yo'q"}</Badge>
+                  <Btn size="sm" variant="ghost" onClick={() => { setEditing(s.email); setPinInput(""); }}>
+                    {s.hasPin ? "O'zgartirish" : "O'rnatish"}
+                  </Btn>
+                  {s.hasPin && (
+                    <Btn size="sm" variant="red" disabled={saving} onClick={() => savePin(s.email, "")}>O'chirish</Btn>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function PinChangeModal({ pins, onClose, onSave }) {
   const [rahbar, setRahbar] = useState(pins.rahbar || "");
   const [kassir, setKassir] = useState(pins.kassir || "");
@@ -1331,6 +1431,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
   const [supplierCodesOpen, setSupplierCodesOpen] = useState(false);
   const [partnerCodesOpen, setPartnerCodesOpen] = useState(false);
   const [branchesOpen, setBranchesOpen] = useState(false);
+  const [staff2FAOpen, setStaff2FAOpen] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -1402,6 +1503,12 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
               <Package size={14} color={T.blue} /> Filiallar
             </button>
           )}
+          {role === "azim" && (
+            <button onClick={() => { setStaff2FAOpen(true); setOpen(false); }}
+              className="menu-item" style={menuItemSt}>
+              <ShieldCheck size={14} color={T.flame} /> Xodimlar — 2-bosqich PIN
+            </button>
+          )}
           {(role === "azim" || role === "kassir") && (
             <>
               <button onClick={() => { setExportOpen(true); setOpen(false); }} className="menu-item" style={menuItemSt}>
@@ -1426,6 +1533,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
         </div>
       )}
 
+      {staff2FAOpen && <StaffPinModal onClose={() => setStaff2FAOpen(false)} />}
       {exportOpen && <JSONExportModal data={data} onClose={() => setExportOpen(false)} />}
       {importOpen && <JSONImportModal onClose={() => setImportOpen(false)} onImport={onImport} />}
       {rateOpen && (
@@ -1859,6 +1967,130 @@ function Card({ title, children, action, pad = true, accent }) {
         </div>
       )}
       <div style={{ padding: pad ? "16px 18px" : 0 }}>{children}</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   IKKINCHI BOSQICH (2FA) — Google tasdiqlangandan keyingi shaxsiy PIN
+═══════════════════════════════════════════════════ */
+function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
+  const [digits, setDigits] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lockout, setLockout] = useState(() => getLockoutState());
+
+  useEffect(() => {
+    const t = setInterval(() => setLockout(getLockoutState()), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function submit(pin) {
+    if (busy) return;
+    const lo = getLockoutState();
+    if (lo.locked) { setLockout(lo); setError("Juda ko'p urinish"); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/verify-2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${pending.token}` },
+        body: JSON.stringify({ pin }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) {
+        clearPinAttempts();
+        onSuccess(json.token, json.role, json.name);
+        return;
+      }
+      recordFailedPinAttempt();
+      setLockout(getLockoutState());
+      setError(json.error || "PIN xato");
+      setDigits("");
+    } catch (e) {
+      setError(String(e?.message || e));
+      setDigits("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function press(d) {
+    if (digits.length >= 8 || busy || lockout.locked) return;
+    const next = digits + d;
+    setDigits(next);
+    if (next.length >= 4) submit(next);
+  }
+
+  const lockRemainMin = lockout.locked ? Math.max(1, Math.ceil((lockout.until - Date.now()) / 60000)) : 0;
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: T.bg, display: "flex",
+      alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <GlobalStyles />
+      <div style={{
+        width: "100%", maxWidth: 340,
+        background: `linear-gradient(160deg, ${T.s2}, ${T.s1})`,
+        border: `1px solid ${T.flame}28`, borderRadius: 22,
+        boxShadow: "0 30px 70px rgba(0,0,0,.5)", padding: "30px 30px 26px",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <ShieldCheck size={26} color={T.flame} style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>Ikkinchi bosqich</div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+            {pending.fullName || pending.email} — shaxsiy PIN kodingizni kiriting
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", gap: 11, marginBottom: 18, minHeight: 14 }}>
+          {Array.from({ length: Math.max(4, digits.length) }).map((_, i) => (
+            <span key={i} style={{
+              width: 11, height: 11, borderRadius: "50%",
+              background: error ? T.red : i < digits.length ? T.flame : "rgba(255,255,255,.14)",
+            }} />
+          ))}
+        </div>
+
+        {lockout.locked && (
+          <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginBottom: 14, fontWeight: 600 }}>
+            Juda ko'p urinish. {lockRemainMin} daqiqadan keyin qayta urinib ko'ring.
+          </p>
+        )}
+        {!lockout.locked && error && (
+          <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginBottom: 14, fontWeight: 600 }}>{error}</p>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+            <button key={n} disabled={busy || lockout.locked} onClick={() => press(String(n))} style={{
+              background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+              color: T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
+            }} className="mo">{n}</button>
+          ))}
+          <button onClick={() => setDigits("")} style={{
+            background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+            color: T.muted2, fontSize: 15, fontWeight: 700, padding: "16px 0", cursor: "pointer",
+          }}>C</button>
+          <button disabled={busy || lockout.locked} onClick={() => press("0")} style={{
+            background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+            color: T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
+          }} className="mo">0</button>
+          <button onClick={() => setDigits((s) => s.slice(0, -1))} style={{
+            background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+            color: T.muted2, padding: "16px 0", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}><Delete size={18} /></button>
+        </div>
+
+        <button onClick={onCancel} style={{
+          width: "100%", background: "none", border: "none", cursor: "pointer",
+          color: T.muted, fontSize: 11.5, fontWeight: 600, textDecoration: "underline",
+        }}>
+          Boshqa hisob bilan kirish
+        </button>
+      </div>
     </div>
   );
 }
@@ -2395,6 +2627,7 @@ export default function App() {
   const [dataVersion, setDataVersion] = useState(0); // optimistic lock
   const [authChecked, setAuthChecked] = useState(false); // mavjud Google sessiyasi tekshirilib bo'ldimi
   const [authError, setAuthError] = useState(""); // Google orqali kirgan, lekin staff'da yo'q, va sh.k.
+  const [pending2FA, setPending2FA] = useState(null); // Google tasdiqlandi, lekin shaxsiy PIN hali kiritilmagan
   const saveTimer = useRef(null);
   const retryCount = useRef(0);
   const dataVersionRef = useRef(0);
@@ -2413,7 +2646,11 @@ export default function App() {
           });
           const json = await res.json().catch(() => ({}));
           if (json.ok) {
-            setRole(json.role);
+            if (json.requiresPin) {
+              setPending2FA({ token: session.access_token, role: json.role, email: json.email, fullName: json.fullName });
+            } else {
+              setRole(json.role);
+            }
           } else {
             await authClient.signOutGoogle();
             setAuthError(json.error || "Ruxsat yo'q");
@@ -2606,6 +2843,21 @@ export default function App() {
         <Loader2 size={30} color={T.flame} className="spin" />
       </div>
     );
+
+  if (pending2FA) return (
+    <TwoFactorPinScreen
+      pending={pending2FA}
+      onCancel={async () => {
+        await authClient.signOutGoogle();
+        setPending2FA(null);
+      }}
+      onSuccess={(token, role, name) => {
+        authClient.setPinToken(token);
+        setPending2FA(null);
+        setRole(role);
+      }}
+    />
+  );
 
   if (!role) return (
     <LoginScreen
