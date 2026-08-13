@@ -65,6 +65,7 @@ const emptyData = () => ({
     ],
     azimKpi: 0,
     azimKpiHistory: [], // {id, month, amount, reason, date} — har bir KPI qo'shilishi sababi bilan
+    azimEmployeeId: null, // Xodimlar bo'limidagi qaysi xodimga oylik KPI avtomatik qo'shilishi kerak
     ustaCodes: [], // {id, name, code} — har bir ustaning shaxsiy 4 xonali kirish kodi
     supplierCodes: [], // {id, name, code} — ta'minotchining shaxsiy kirish kodi (name = stockIns.supplier bilan bir xil)
     partnerCodes: [], // {id, partnerId, code} — hamkorning shaxsiy kirish kodi
@@ -8173,7 +8174,7 @@ function EmployeesTab({ data, patch, rate }) {
   const [payOpen, setPayOpen] = useState(null);
   const [monthFilter, setMonthFilter] = useState(currentMonthKey());
 
-  const employees = data.employees || [];
+  const employeesRaw = data.employees || [];
   const payments = data.employeePayments || [];
 
   const monthPayments = payments.filter((p) => p.month === monthFilter);
@@ -8184,6 +8185,19 @@ function EmployeesTab({ data, patch, rate }) {
   }
 
   const months = [...new Set([currentMonthKey(), ...payments.map((p) => p.month)])].sort().reverse();
+
+  // "Analitika" bo'limidagi Azim KPI shu oyda qo'shilgan bo'lsa — KPI'ga "ulangan"
+  // xodimning shu oygi oyligiga qo'shib ko'rsatamiz. Haqiqiy standardSalary o'zgarmaydi,
+  // faqat shu oy uchun hisob-kitobda (to'lash/qolgan) hisobga olinadi.
+  const azimEmployeeId = data.settings.azimEmployeeId;
+  const monthKpiTotal = (data.settings.azimKpiHistory || [])
+    .filter((h) => h.month === monthFilter)
+    .reduce((s, h) => s + num(h.amount), 0);
+  const employees = employeesRaw.map((e) =>
+    e.id === azimEmployeeId && monthKpiTotal > 0
+      ? { ...e, standardSalary: num(e.standardSalary) + monthKpiTotal, kpiBonus: monthKpiTotal }
+      : e
+  );
 
   function addEmployee(emp) {
     patch((d) => { d.employees.push({ id: uid(), ...emp }); return d; });
@@ -8248,7 +8262,16 @@ function EmployeesTab({ data, patch, rate }) {
             { k: "name", h: "Ismi", r: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
             { k: "position", h: "Lavozim", r: (r) => <Badge color={T.purple}>{r.position}</Badge> },
             { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
-            { k: "standardSalary", h: "Standart oylik", r: (r) => <span className="mo" style={{ color: T.muted2 }}>{fmtSum(r.standardSalary)}</span> },
+            { k: "standardSalary", h: "Standart oylik", r: (r) => (
+                <span className="mo" style={{ color: T.muted2 }}>
+                  {fmtSum(r.standardSalary)}
+                  {r.kpiBonus > 0 && (
+                    <span style={{ display: "block", fontSize: 10, color: T.gold, marginTop: 2 }}>
+                      + KPI {fmtSum(r.kpiBonus)}
+                    </span>
+                  )}
+                </span>
+              ) },
             { k: "paidAmt", h: `To'langan (${monthFilter})`, r: (r) => <span className="mo" style={{ color: T.teal, fontWeight: 600 }}>{fmtSum(paidThisMonthAmount(r.id))}</span> },
             { k: "remaining", h: "Qolgan", r: (r) => {
                 const rem = Math.max(0, num(r.standardSalary) - paidThisMonthAmount(r.id));
@@ -8266,8 +8289,20 @@ function EmployeesTab({ data, patch, rate }) {
             {
               k: "act", h: "",
               r: (r) => (
-                <div style={{ display: "flex", gap: 6 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <Btn size="sm" variant="teal" onClick={() => setPayOpen(r)}>Oylik to'lash</Btn>
+                  <button
+                    title={r.id === azimEmployeeId ? "Azim KPI'ga ulangan — bosib uzish" : "Analitikadagi Azim KPI shu xodimga qo'shilsin"}
+                    onClick={() => patch((d) => {
+                      d.settings.azimEmployeeId = d.settings.azimEmployeeId === r.id ? null : r.id;
+                      return d;
+                    })}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      color: r.id === azimEmployeeId ? T.gold : T.muted,
+                    }}>
+                    <Star size={13} fill={r.id === azimEmployeeId ? T.gold : "none"} />
+                  </button>
                   <button onClick={() => setEditOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}>
                     <Pencil size={13} />
                   </button>
