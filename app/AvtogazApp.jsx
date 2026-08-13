@@ -8199,16 +8199,22 @@ function EmployeesTab({ data, patch, rate }) {
       : e
   );
 
-  // Azim Kassadan "Rahbarga chiqim" sifatida vaqti-vaqti bilan shaxsan pul olib turadi —
-  // bular rasmiy "Oylik to'lash" orqali emas. Shuning uchun KPI'ga ulangan xodim uchun bu
-  // yozuvlar ham "to'langan" deb hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
+  // Azim Kassadan vaqti-vaqti bilan avans sifatida shaxsan pul olib turadi — bular "Ish haqi"
+  // toifasida, izohida ismi ko'rsatilgan holda yoziladi ("Rahbarga chiqim" toifasi bunga
+  // aloqasi yo'q — u boshqa maqsad uchun ishlatiladi). Bular rasmiy "Oylik to'lash" orqali
+  // emas, shuning uchun KPI'ga ulangan xodim uchun bu yozuvlar ham "to'langan" deb
+  // hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
   // 2026-08-03 dan boshlab — bundan oldingi yozuvlar o'tgan oyning haqi sifatida allaqachon
   // hisoblangan edi (2026-08 gacha bo'lgan oylar uchun bu cheklov qo'llanmaydi).
   const AZIM_DRAW_CUTOFF = "2026-08-03";
   const drawFrom = monthFilter === "2026-08" ? AZIM_DRAW_CUTOFF : monthFilter + "-01";
-  const monthAzimDraws = (data.cashflow || [])
-    .filter((c) => c.category === "Rahbarga chiqim" && c.date >= drawFrom && c.date.startsWith(monthFilter))
-    .reduce((s, c) => s + num(c.amountSum), 0);
+  const azimNameKey = (employeesRaw.find((e) => e.id === azimEmployeeId)?.name || "").split(" ")[0].toLowerCase();
+  const monthAzimDraws = azimNameKey
+    ? (data.cashflow || [])
+        .filter((c) => c.category === "Ish haqi" && c.date >= drawFrom && c.date.startsWith(monthFilter)
+          && (c.note || "").toLowerCase().includes(azimNameKey))
+        .reduce((s, c) => s + num(c.amountSum), 0)
+    : 0;
 
   function effectivePaidThisMonthAmount(employeeId) {
     const base = paidThisMonthAmount(employeeId);
