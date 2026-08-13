@@ -8209,12 +8209,13 @@ function EmployeesTab({ data, patch, rate }) {
   const AZIM_DRAW_CUTOFF = "2026-08-03";
   const drawFrom = monthFilter === "2026-08" ? AZIM_DRAW_CUTOFF : monthFilter + "-01";
   const azimNameKey = (employeesRaw.find((e) => e.id === azimEmployeeId)?.name || "").split(" ")[0].toLowerCase();
-  const monthAzimDraws = azimNameKey
+  const azimDrawEntries = azimNameKey
     ? (data.cashflow || [])
         .filter((c) => c.category === "Ish haqi" && c.date >= drawFrom && c.date.startsWith(monthFilter)
           && (c.note || "").toLowerCase().includes(azimNameKey))
-        .reduce((s, c) => s + num(c.amountSum), 0)
-    : 0;
+        .sort((a, b) => a.date.localeCompare(b.date))
+    : [];
+  const monthAzimDraws = azimDrawEntries.reduce((s, c) => s + num(c.amountSum), 0);
 
   function effectivePaidThisMonthAmount(employeeId) {
     const base = paidThisMonthAmount(employeeId);
@@ -8363,6 +8364,23 @@ function EmployeesTab({ data, patch, rate }) {
           />
         </Card>
       </div>
+
+      {azimEmployeeId && (
+        <div style={{ marginTop: 16 }}>
+          <Card title={`Avans tarixi — ${monthFilter} (${fmtSum(monthAzimDraws)})`} pad={false}>
+            <Tbl
+              empty="Bu oyda avans yozuvi topilmadi"
+              cols={[
+                { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
+                { k: "amountSum", h: "Summa", r: (r) => <span style={{ color: T.gold, fontWeight: 700 }}>{fmtSum(r.amountSum)}</span> },
+                { k: "paymentType", h: "Turi", r: (r) => r.paymentType || "—" },
+                { k: "note", h: "Izoh", r: (r) => <span style={{ color: T.muted, fontSize: 12 }}>{r.note || "—"}</span> },
+              ]}
+              rows={azimDrawEntries}
+            />
+          </Card>
+        </div>
+      )}
 
       {addOpen && <AddEmployeeModal onClose={() => setAddOpen(false)} onSave={(emp) => { addEmployee(emp); setAddOpen(false); }} />}
       {editOpen && (
