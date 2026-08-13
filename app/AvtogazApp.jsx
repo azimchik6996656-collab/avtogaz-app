@@ -8199,6 +8199,22 @@ function EmployeesTab({ data, patch, rate }) {
       : e
   );
 
+  // Azim Kassadan "Rahbarga chiqim" sifatida vaqti-vaqti bilan shaxsan pul olib turadi —
+  // bular rasmiy "Oylik to'lash" orqali emas. Shuning uchun KPI'ga ulangan xodim uchun bu
+  // yozuvlar ham "to'langan" deb hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
+  // 2026-08-03 dan boshlab — bundan oldingi yozuvlar o'tgan oyning haqi sifatida allaqachon
+  // hisoblangan edi (2026-08 gacha bo'lgan oylar uchun bu cheklov qo'llanmaydi).
+  const AZIM_DRAW_CUTOFF = "2026-08-03";
+  const drawFrom = monthFilter === "2026-08" ? AZIM_DRAW_CUTOFF : monthFilter + "-01";
+  const monthAzimDraws = (data.cashflow || [])
+    .filter((c) => c.category === "Rahbarga chiqim" && c.date >= drawFrom && c.date.startsWith(monthFilter))
+    .reduce((s, c) => s + num(c.amountSum), 0);
+
+  function effectivePaidThisMonthAmount(employeeId) {
+    const base = paidThisMonthAmount(employeeId);
+    return employeeId === azimEmployeeId ? base + monthAzimDraws : base;
+  }
+
   function addEmployee(emp) {
     patch((d) => { d.employees.push({ id: uid(), ...emp }); return d; });
   }
@@ -8229,7 +8245,7 @@ function EmployeesTab({ data, patch, rate }) {
   }
 
   function isPaidThisMonth(employeeId) {
-    return monthPayments.some((p) => p.employeeId === employeeId);
+    return monthPayments.some((p) => p.employeeId === employeeId) || effectivePaidThisMonthAmount(employeeId) > 0;
   }
 
   return (
@@ -8272,15 +8288,15 @@ function EmployeesTab({ data, patch, rate }) {
                   )}
                 </span>
               ) },
-            { k: "paidAmt", h: `To'langan (${monthFilter})`, r: (r) => <span className="mo" style={{ color: T.teal, fontWeight: 600 }}>{fmtSum(paidThisMonthAmount(r.id))}</span> },
+            { k: "paidAmt", h: `To'langan (${monthFilter})`, r: (r) => <span className="mo" style={{ color: T.teal, fontWeight: 600 }}>{fmtSum(effectivePaidThisMonthAmount(r.id))}</span> },
             { k: "remaining", h: "Qolgan", r: (r) => {
-                const rem = Math.max(0, num(r.standardSalary) - paidThisMonthAmount(r.id));
+                const rem = Math.max(0, num(r.standardSalary) - effectivePaidThisMonthAmount(r.id));
                 return <span className="mo" style={{ fontWeight: 700, color: rem > 0 ? T.gold : T.teal }}>{fmtSum(rem)}</span>;
               } },
             {
               k: "status", h: `Holat`,
               r: (r) => {
-                const paid = paidThisMonthAmount(r.id);
+                const paid = effectivePaidThisMonthAmount(r.id);
                 if (paid <= 0) return <Badge color={T.red}>Kutilmoqda</Badge>;
                 if (paid < num(r.standardSalary) - 0.5) return <Badge color={T.gold}>Qisman to'langan</Badge>;
                 return <Badge color={T.teal}>✓ To'langan</Badge>;
@@ -8351,7 +8367,7 @@ function EmployeesTab({ data, patch, rate }) {
       )}
       {payOpen && (
         <PayEmployeeModal
-          employee={payOpen} month={monthFilter} alreadyPaid={paidThisMonthAmount(payOpen.id)}
+          employee={payOpen} month={monthFilter} alreadyPaid={effectivePaidThisMonthAmount(payOpen.id)}
           onClose={() => setPayOpen(null)}
           onSave={(amountSum, note) => { payEmployee(payOpen.id, amountSum, monthFilter, note); setPayOpen(null); }}
         />
