@@ -555,11 +555,11 @@ const T = {
   bg: "#11141A", s1: "#171B22", s2: "#1A1F27", s3: "#20262F", s4: "#282F39",
   border: "#2A3038", border2: "#3A424E",
   text: "#E4E7EC", muted: "#8B93A0", muted2: "#B4BBC6",
-  flame: "#E85A2A", flameD: "#E85A2A22",
+  flame: "#F17225", flameD: "#F1722522",
   gold: "#C9922A", goldD: "#C9922A22",
   teal: "#14B8A6", tealD: "#14B8A622",
-  red: "#EF4444", redD: "#EF444422",
-  blue: "#3B82F6", blueD: "#3B82F622",
+  red: "#F41819", redD: "#F4181922",
+  blue: "#2F76B4", blueD: "#2F76B422",
   purple: "#8B5CF6", purpleD: "#8B5CF622",
   // Enterprise accentlar — SaaS dashboard uslubi
   ink: "#0F172A", line: "#1E293B",
@@ -1954,7 +1954,7 @@ function Stat({ label, value, sub, color, Icon, spark }) {
           <Icon size={13} color={color} />
         </div>}
       </div>
-      <div className="mo bc" style={{ fontSize: 20, fontWeight: 700, color: T.text, lineHeight: 1.1, letterSpacing: "-.01em" }}>{value}</div>
+      <div className="mo bc" style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1.1, letterSpacing: "-.01em" }}>{value}</div>
       {(sub || spark) && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 5 }}>
           {sub && <div style={{ fontSize: 10.5, color: T.muted, lineHeight: 1.4 }}>{sub}</div>}
