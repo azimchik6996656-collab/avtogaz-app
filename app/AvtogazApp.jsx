@@ -591,7 +591,10 @@ function GlobalStyles() {
       @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
       @keyframes spin{to{transform:rotate(360deg)}}
       @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
-      .fi{animation:fadeUp .2s ease both}
+      .fi{animation:fadeUp .22s ease both}
+      .tab-btn{transition:background .14s ease, color .14s ease, transform .14s ease}
+      .tab-btn:hover{transform:translateY(-2px)}
+      .tab-btn:not(.active):hover{background:${T.s3}!important; color:${T.text}!important}
       .spin{animation:spin 1s linear infinite}
       .pulse{animation:pulse 1.5s ease infinite}
       select{appearance:none}
@@ -1901,14 +1904,19 @@ function ScrollableTabs({ tabs, tab, setTab }) {
         {tabs.map(({ id, label, Icon }) => {
           const a = tab === id;
           return (
-            <button key={id} onClick={() => setTab(id)} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 14px", border: "none", borderRadius: 8,
-              cursor: "pointer", fontSize: 12.5, fontWeight: a ? 700 : 500,
-              color: a ? T.flame : T.muted2,
-              background: a ? T.flameD : "transparent",
-              whiteSpace: "nowrap", transition: "background .12s, color .12s",
-            }}>
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`tab-btn${a ? " active" : ""}`}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 14px", border: "none", borderRadius: 8,
+                cursor: "pointer", fontSize: 12.5, fontWeight: a ? 700 : 500,
+                color: a ? T.flame : T.muted2,
+                background: a ? T.flameD : "transparent",
+                whiteSpace: "nowrap",
+              }}
+            >
               <Icon size={14} /> {label}
             </button>
           );
@@ -3053,7 +3061,7 @@ export default function App() {
       <ScrollableTabs tabs={tabs} tab={tab} setTab={setTab} />
 
       {/* CONTENT */}
-      <div style={{ padding: "22px 20px", maxWidth: 1400, margin: "0 auto" }} className="fi">
+      <div key={tab} style={{ padding: "22px 20px", maxWidth: 1400, margin: "0 auto" }} className="fi">
         {tab === "dashboard"  && <DashboardTab  data={data} patch={patch} rate={rate} setTab={setTab} />}
         {tab === "callcenter" && <CallCenterTab data={data} patch={patch} />}
         {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} />}
