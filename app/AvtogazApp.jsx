@@ -8256,13 +8256,23 @@ function EmployeesTab({ data, patch, rate }) {
   // aloqasi yo'q — u boshqa maqsad uchun ishlatiladi). Bular rasmiy "Oylik to'lash" orqali
   // emas, shuning uchun KPI'ga ulangan xodim uchun bu yozuvlar ham "to'langan" deb
   // hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
-  // 2026-08-03 dan boshlab — bundan oldingi yozuvlar o'tgan oyning haqi sifatida allaqachon
-  // hisoblangan edi (2026-08 gacha bo'lgan oylar uchun bu cheklov qo'llanmaydi).
-  // Bir martalik istisno: 27-28 iyuldagi ikkita yozuv ("Sales manager oyligi (2026-07)")
-  // ham aslida avgust davriga tegishli ekan (oylik 25-kuni yopilgan) — shuning uchun
-  // faqat 2026-08 uchun boshlanish sanasi 27-iyulga suriladi.
-  const drawFrom = monthFilter === "2026-08" ? "2026-07-27" : monthFilter + "-01";
-  const drawTo = monthFilter === "2026-08" ? "2026-08-31" : monthFilter + "-31";
+  // Bir martalik istisno: oylik 25-kuni yopilgani uchun 27-28 iyuldagi yozuvlar aslida
+  // avgust davriga tegishli — shuning uchun avgust oynasi 27-iyuldan boshlanadi.
+  //
+  // MUHIM: iyul oynasi ham aynan shu kundan OLDIN tugashi shart. Aks holda 27-28 iyul
+  // ikkala oynaga ham tushib, bir xil pul iyulda ham, avgustda ham "olingan" deb
+  // ko'rsatiladi (bu yerda 1 500 000 so'm shunday ikki marta hisoblangan edi).
+  const AUG_PERIOD_START = "2026-07-27";
+  const prevDay = (iso) => {
+    const t = new Date(iso + "T00:00:00Z");
+    t.setUTCDate(t.getUTCDate() - 1);
+    return t.toISOString().slice(0, 10);
+  };
+  const drawFrom = monthFilter === "2026-08" ? AUG_PERIOD_START : monthFilter + "-01";
+  const drawTo =
+    monthFilter === "2026-08" ? "2026-08-31"
+    : monthFilter === AUG_PERIOD_START.slice(0, 7) ? prevDay(AUG_PERIOD_START)
+    : monthFilter + "-31";
   const azimEmp = employeesRaw.find((e) => e.id === azimEmployeeId);
   const azimNameRaw = (azimEmp?.name || "").split(" ")[0].toLowerCase();
   const azimNameKeys = azimNameRaw ? [...new Set([azimNameRaw, translitCyrillic(azimNameRaw)])] : [];
