@@ -2017,6 +2017,14 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
   const [busy, setBusy] = useState(false);
   const [lockout, setLockout] = useState(() => getLockoutState());
 
+  // Klaviatura tinglovchisi faqat bir marta o'rnatiladi (pastda [] bilan) — shuning
+  // uchun press/submit shu yerdagi eng so'nggi digits/busy/lockout qiymatlarini emas,
+  // stateRef.current orqali doim eng yangisini o'qishi kerak, aks holda ikkinchi
+  // urinishda tugmalar bosilgani sezilmay qolardi (birinchi mount'dagi eski
+  // qiymatlarga qarab ishlaydi).
+  const stateRef = useRef({ digits, busy, lockout });
+  stateRef.current = { digits, busy, lockout };
+
   useEffect(() => {
     const t = setInterval(() => setLockout(getLockoutState()), 5000);
     return () => clearInterval(t);
@@ -2024,7 +2032,8 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
 
   useEffect(() => {
     function onKeyDown(e) {
-      if (busy || lockout.locked) return;
+      const s = stateRef.current;
+      if (s.busy || s.lockout.locked) return;
       if (/^[0-9]$/.test(e.key)) {
         e.preventDefault();
         press(e.key);
@@ -2033,15 +2042,15 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
         setDigits((s) => s.slice(0, -1));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (digits.length >= 4) submit(digits);
+        if (s.digits.length >= 4) submit(s.digits);
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [busy, lockout.locked, digits]);
+  }, []);
 
   async function submit(pin) {
-    if (busy) return;
+    if (stateRef.current.busy) return;
     const lo = getLockoutState();
     if (lo.locked) { setLockout(lo); setError("Juda ko'p urinish"); return; }
     setBusy(true);
@@ -2071,8 +2080,9 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
   }
 
   function press(d) {
-    if (digits.length >= 8 || busy || lockout.locked) return;
-    const next = digits + d;
+    const s = stateRef.current;
+    if (s.digits.length >= 8 || s.busy || s.lockout.locked) return;
+    const next = s.digits + d;
     setDigits(next);
     if (next.length >= 4) submit(next);
   }
@@ -2081,20 +2091,20 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
 
   return (
     <div style={{
-      minHeight: "100vh", background: T.bg, display: "flex",
+      minHeight: "100vh", background: LOGIN_T.bg, display: "flex",
       alignItems: "center", justifyContent: "center", padding: 20,
     }}>
       <GlobalStyles />
       <div style={{
         width: "100%", maxWidth: 340,
-        background: `linear-gradient(160deg, ${T.s2}, ${T.s1})`,
-        border: `1px solid ${T.flame}28`, borderRadius: 22,
+        background: `linear-gradient(160deg, ${LOGIN_T.s2}, ${LOGIN_T.s1})`,
+        border: `1px solid ${LOGIN_T.flame}28`, borderRadius: 22,
         boxShadow: "0 30px 70px rgba(0,0,0,.5)", padding: "30px 30px 26px",
       }}>
         <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <ShieldCheck size={26} color={T.flame} style={{ marginBottom: 10 }} />
-          <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>Ikkinchi bosqich</div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+          <ShieldCheck size={26} color={LOGIN_T.flame} style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 15, fontWeight: 800, color: LOGIN_T.text }}>Ikkinchi bosqich</div>
+          <div style={{ fontSize: 12, color: LOGIN_T.muted, marginTop: 4 }}>
             {pending.fullName || pending.email} — shaxsiy PIN kodingizni kiriting
           </div>
         </div>
@@ -2103,45 +2113,45 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
           {Array.from({ length: Math.max(4, digits.length) }).map((_, i) => (
             <span key={i} style={{
               width: 11, height: 11, borderRadius: "50%",
-              background: error ? T.red : i < digits.length ? T.flame : "rgba(255,255,255,.14)",
+              background: error ? LOGIN_T.red : i < digits.length ? LOGIN_T.flame : "rgba(255,255,255,.14)",
             }} />
           ))}
         </div>
 
         {lockout.locked && (
-          <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginBottom: 14, fontWeight: 600 }}>
+          <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginBottom: 14, fontWeight: 600 }}>
             Juda ko'p urinish. {lockRemainMin} daqiqadan keyin qayta urinib ko'ring.
           </p>
         )}
         {!lockout.locked && error && (
-          <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginBottom: 14, fontWeight: 600 }}>{error}</p>
+          <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginBottom: 14, fontWeight: 600 }}>{error}</p>
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
           {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
             <button key={n} disabled={busy || lockout.locked} onClick={() => press(String(n))} style={{
               background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-              color: T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
+              color: LOGIN_T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
             }} className="mo">{n}</button>
           ))}
           <button onClick={() => setDigits("")} style={{
             background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-            color: T.muted2, fontSize: 15, fontWeight: 700, padding: "16px 0", cursor: "pointer",
+            color: LOGIN_T.muted2, fontSize: 15, fontWeight: 700, padding: "16px 0", cursor: "pointer",
           }}>C</button>
           <button disabled={busy || lockout.locked} onClick={() => press("0")} style={{
             background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-            color: T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
+            color: LOGIN_T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
           }} className="mo">0</button>
           <button onClick={() => setDigits((s) => s.slice(0, -1))} style={{
             background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-            color: T.muted2, padding: "16px 0", cursor: "pointer",
+            color: LOGIN_T.muted2, padding: "16px 0", cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}><Delete size={18} /></button>
         </div>
 
         <button onClick={onCancel} style={{
           width: "100%", background: "none", border: "none", cursor: "pointer",
-          color: T.muted, fontSize: 11.5, fontWeight: 600, textDecoration: "underline",
+          color: LOGIN_T.muted, fontSize: 11.5, fontWeight: 600, textDecoration: "underline",
         }}>
           Boshqa hisob bilan kirish
         </button>
@@ -8248,8 +8258,17 @@ function EmployeesTab({ data, patch, rate }) {
   // faqat 2026-08 uchun boshlanish sanasi 27-iyulga suriladi.
   const drawFrom = monthFilter === "2026-08" ? "2026-07-27" : monthFilter + "-01";
   const drawTo = monthFilter === "2026-08" ? "2026-08-31" : monthFilter + "-31";
-  const azimNameRaw = (employeesRaw.find((e) => e.id === azimEmployeeId)?.name || "").split(" ")[0].toLowerCase();
+  const azimEmp = employeesRaw.find((e) => e.id === azimEmployeeId);
+  const azimNameRaw = (azimEmp?.name || "").split(" ")[0].toLowerCase();
   const azimNameKeys = azimNameRaw ? [...new Set([azimNameRaw, translitCyrillic(azimNameRaw)])] : [];
+  // "Oylik to'lash" tugmasi (payEmployee) bosilganda xuddi shu ismni o'z ichiga olgan
+  // "Ish haqi" yozuvi avtomatik yaratiladi: "<ism> — <lavozim> oyligi (<oy>)". U
+  // allaqachon d.employeePayments orqali paidThisMonthAmount()'da hisoblangan — shu
+  // yerga ham tushib qolsa, bir xil to'lov ikki marta ayirilib ketardi. Faqat aynan
+  // shu naqshga mos yozuvni chiqarib tashlaymiz — oddiy "oyligi (" so'zini emas, aks
+  // holda boshqa (haqiqiy avans) yozuvlar ham tasodifan shu so'zni o'z ichiga olsa,
+  // ular ham noto'g'ri chiqarib tashlanadi (masalan "Sales manager oyligi (2026-07)").
+  const azimFormalPayNotePrefix = azimEmp ? `${azimEmp.name} — ${azimEmp.position} oyligi (`.toLowerCase() : null;
   const azimDrawEntries = azimNameKeys.length
     ? (data.cashflow || [])
         .filter((c) => c.category === "Ish haqi" && c.date >= drawFrom && c.date <= drawTo
@@ -8257,11 +8276,7 @@ function EmployeesTab({ data, patch, rate }) {
           // "... kassa iyulgacha yopildi" — bu iyul oyini yopish (eski hisob) yozuvi,
           // yangi avgust avansi emas, shuning uchun bu yerga hisoblanmaydi.
           && !(c.note || "").toLowerCase().includes("йопилди")
-          // "Oylik to'lash" tugmasi (payEmployee) bosilganda ham xuddi shu ismni o'z
-          // ichiga olgan "Ish haqi" yozuvi avtomatik yaratiladi ("... oyligi (YYYY-MM)").
-          // U allaqachon d.employeePayments orqali paidThisMonthAmount()'da hisoblangan —
-          // shu yerga ham tushib qolsa, bir xil to'lov ikki marta ayirilib ketardi.
-          && !(c.note || "").toLowerCase().includes("oyligi ("))
+          && !(azimFormalPayNotePrefix && (c.note || "").toLowerCase().startsWith(azimFormalPayNotePrefix)))
         .sort((a, b) => a.date.localeCompare(b.date))
     : [];
   const monthAzimDraws = azimDrawEntries.reduce((s, c) => s + num(c.amountSum), 0);
