@@ -9768,7 +9768,12 @@ function AuditLogCard({ auditLog }) {
 
 function OwnerMonthlyReport({ data, rate }) {
   const [monthFilter, setMonthFilter] = useState(currentMonthKey());
-  const [otherOpen, setOtherOpen] = useState(false);
+  const [openRows, setOpenRows] = useState(() => new Set());
+  const toggleRow = (label) => setOpenRows((s) => {
+    const next = new Set(s);
+    next.has(label) ? next.delete(label) : next.add(label);
+    return next;
+  });
 
   const cf = data.cashflow || [];
   const monthCF = cf.filter((c) => (c.date || "").startsWith(monthFilter));
@@ -9790,27 +9795,24 @@ function OwnerMonthlyReport({ data, rate }) {
   const monthExpenseUSDRaw = monthExpenseEntries.filter((c) => c.currency === "USD").reduce((s, c) => s + num(c.amount), 0);
   const monthExpenseUSDAsSum = monthExpenseEntries.filter((c) => c.currency === "USD").reduce((s, c) => s + num(c.amountSum), 0);
 
-  const supplierPay = monthCF.filter((c) => c.category === "Ta'minotchiga to'lov").reduce((s, c) => s + num(c.amountSum), 0);
-  const ustaPay = monthCF.filter((c) => c.category === "Usta xizmat haqi").reduce((s, c) => s + num(c.amountSum), 0);
-  const docFeePay = monthCF.filter((c) => c.category === "Hujjat xarajati").reduce((s, c) => s + num(c.amountSum), 0);
-  const employeePay = monthCF.filter((c) => c.category === "Ish haqi").reduce((s, c) => s + num(c.amountSum), 0);
-  const rahbarPay = monthCF.filter((c) => c.category === "Rahbarga chiqim").reduce((s, c) => s + num(c.amountSum), 0);
-  const logistikaPay = monthCF.filter((c) => c.category === "Logistika").reduce((s, c) => s + num(c.amountSum), 0);
-  const pitaniyaPay = monthCF.filter((c) => c.category === "Pitaniya").reduce((s, c) => s + num(c.amountSum), 0);
+  const supplierEntries = monthCF.filter((c) => c.category === "Ta'minotchiga to'lov");
+  const ustaEntries = monthCF.filter((c) => c.category === "Usta xizmat haqi");
+  const docFeeEntries = monthCF.filter((c) => c.category === "Hujjat xarajati");
+  const employeeEntries = monthCF.filter((c) => c.category === "Ish haqi");
+  const rahbarEntries = monthCF.filter((c) => c.category === "Rahbarga chiqim");
+  const logistikaEntries = monthCF.filter((c) => c.category === "Logistika");
+  const pitaniyaEntries = monthCF.filter((c) => c.category === "Pitaniya");
   const NAMED_EXPENSE_CATEGORIES = ["Ta'minotchiga to'lov", "Usta xizmat haqi", "Hujjat xarajati", "Ish haqi", "Rahbarga chiqim", "Logistika", "Pitaniya"];
   const otherExpenseEntries = monthCF.filter((c) => c.type === "chiqim" && !NAMED_EXPENSE_CATEGORIES.includes(c.category));
+
+  const supplierPay = supplierEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  const ustaPay = ustaEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  const docFeePay = docFeeEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  const employeePay = employeeEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  const rahbarPay = rahbarEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  const logistikaPay = logistikaEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  const pitaniyaPay = pitaniyaEntries.reduce((s, c) => s + num(c.amountSum), 0);
   const otherExpense = otherExpenseEntries.reduce((s, c) => s + num(c.amountSum), 0);
-  // "Boshqa xarajatlar" bitta katta raqam sifatida ko'rsatilsa, uning ichida aslida
-  // nima borligini bilib bo'lmaydi — shuning uchun toifa bo'yicha ajratib ko'rsatamiz.
-  const otherByCategory = Object.values(
-    otherExpenseEntries.reduce((acc, c) => {
-      const key = c.category || "Toifasiz";
-      if (!acc[key]) acc[key] = { category: key, total: 0, count: 0 };
-      acc[key].total += num(c.amountSum);
-      acc[key].count += 1;
-      return acc;
-    }, {})
-  ).sort((a, b) => b.total - a.total);
 
   // MUHIM: "Rahbarga chiqim" — bu rahbarning ALLAQACHON topilgan foydadan shaxsan
   // olgan puli, biznes xarajati emas (ijaraga, ta'minotchiga to'lov kabi emas).
@@ -9823,18 +9825,21 @@ function OwnerMonthlyReport({ data, rate }) {
 
   const months = [...new Set([currentMonthKey(), ...cf.map((c) => (c.date || "").slice(0, 7)).filter(Boolean)])].sort().reverse();
 
+  // Har bir qatorga tegishli xom yozuvlar — bosilganda shular ro'yxati ochiladi.
+  // "Boshqa xarajatlar" bir nechta toifani birlashtirgani uchun har bir yozuv
+  // oldida o'z toifasi ham ko'rsatiladi (renderda ko'rinadi).
   const rows = [
-    ["Jami kirim (naqd)", monthIncome, T.teal, false],
-    ["Ta'minotchi to'lovlari", -supplierPay, T.red, false],
-    ["Usta xizmat haqi", -ustaPay, T.red, false],
-    ["Xodimlar oyligi", -employeePay, T.red, false],
-    ["Logistika", -logistikaPay, T.red, false],
-    ["Pitaniya", -pitaniyaPay, T.red, false],
-    ["Hujjat xarajatlari", -docFeePay, T.red, false],
-    ["Boshqa xarajatlar", -otherExpense, T.red, false],
-    ["SOF FOYDA (biznes)", netProfit, netProfit >= 0 ? T.teal : T.red, true],
-    ["— shundan Rahbar oldi", -rahbarPay, T.gold, false],
-    ["Qolgan foyda", afterOwnerDraw, afterOwnerDraw >= 0 ? T.teal : T.red, true],
+    ["Jami kirim (naqd)", monthIncome, T.teal, false, monthIncomeEntries],
+    ["Ta'minotchi to'lovlari", -supplierPay, T.red, false, supplierEntries],
+    ["Usta xizmat haqi", -ustaPay, T.red, false, ustaEntries],
+    ["Xodimlar oyligi", -employeePay, T.red, false, employeeEntries],
+    ["Logistika", -logistikaPay, T.red, false, logistikaEntries],
+    ["Pitaniya", -pitaniyaPay, T.red, false, pitaniyaEntries],
+    ["Hujjat xarajatlari", -docFeePay, T.red, false, docFeeEntries],
+    ["Boshqa xarajatlar", -otherExpense, T.red, false, otherExpenseEntries],
+    ["SOF FOYDA (biznes)", netProfit, netProfit >= 0 ? T.teal : T.red, true, null],
+    ["— shundan Rahbar oldi", -rahbarPay, T.gold, false, rahbarEntries],
+    ["Qolgan foyda", afterOwnerDraw, afterOwnerDraw >= 0 ? T.teal : T.red, true, null],
   ];
 
   return (
@@ -9847,12 +9852,15 @@ function OwnerMonthlyReport({ data, rate }) {
       }
     >
       <div style={{ display: "grid", gap: 2 }}>
-        {rows.map(([label, val, color, isBold]) => {
-          const isOther = label === "Boshqa xarajatlar";
+        {rows.map(([label, val, color, isBold, entries]) => {
+          const isMixed = label === "Boshqa xarajatlar";
+          const isOpenable = !!entries;
+          const isOpen = openRows.has(label);
+          const sorted = entries ? [...entries].sort((a, b) => num(b.amountSum) - num(a.amountSum)) : [];
           return (
             <React.Fragment key={label}>
               <div
-                onClick={isOther ? () => setOtherOpen((o) => !o) : undefined}
+                onClick={isOpenable ? () => toggleRow(label) : undefined}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: isBold ? "14px 14px" : "9px 14px",
@@ -9860,31 +9868,37 @@ function OwnerMonthlyReport({ data, rate }) {
                   borderRadius: 8,
                   background: isBold ? T.flameD : "transparent",
                   borderTop: isBold ? `2px solid ${T.flame}` : "none",
-                  cursor: isOther ? "pointer" : "default",
+                  cursor: isOpenable ? "pointer" : "default",
                 }}
-                className={isOther ? "rh" : ""}
+                className={isOpenable ? "rh" : ""}
               >
                 <span style={{
                   fontSize: isBold ? 14 : 12.5, fontWeight: isBold ? 800 : 400, color: isBold ? T.text : T.muted,
                   display: "flex", alignItems: "center", gap: 5,
                 }}>
                   {label}
-                  {isOther && otherByCategory.length > 0 && (
-                    <ChevronDown size={12} style={{ transform: otherOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                  {isOpenable && entries.length > 0 && (
+                    <ChevronDown size={12} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
                   )}
                 </span>
                 <span className="mo" style={{ fontSize: isBold ? 18 : 13, fontWeight: isBold ? 800 : 600, color }}>
                   {val < 0 ? "−" : ""}{fmtSum(Math.abs(val))}
                 </span>
               </div>
-              {isOther && otherOpen && (
-                <div style={{ padding: "2px 14px 10px 26px", display: "grid", gap: 4 }} className="fi">
-                  {otherByCategory.length === 0 ? (
-                    <div style={{ fontSize: 12, color: T.muted, padding: "6px 0" }}>Bu oyda boshqa xarajat yo'q</div>
-                  ) : otherByCategory.map((g) => (
-                    <div key={g.category} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                      <span style={{ color: T.muted2 }}>{g.category} <span style={{ color: T.muted }}>({g.count} ta)</span></span>
-                      <span className="mo" style={{ color: T.red, fontWeight: 600 }}>{fmtSum(g.total)}</span>
+              {isOpenable && isOpen && (
+                <div style={{ padding: "2px 14px 10px 26px", display: "grid", gap: 5 }} className="fi">
+                  {sorted.length === 0 ? (
+                    <div style={{ fontSize: 12, color: T.muted, padding: "6px 0" }}>Bu oyda yozuv yo'q</div>
+                  ) : sorted.map((c) => (
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                      <span style={{ color: T.muted2, minWidth: 0 }}>
+                        <span className="mo" style={{ color: T.muted, marginRight: 7 }}>{c.date}</span>
+                        {isMixed && <span style={{ color: T.gold }}>{c.category} · </span>}
+                        {c.note || <span style={{ color: T.muted, fontStyle: "italic" }}>izohsiz</span>}
+                      </span>
+                      <span className="mo" style={{ color: c.type === "kirim" ? T.teal : T.red, fontWeight: 600, flexShrink: 0 }}>
+                        {fmtSum(c.amountSum)}
+                      </span>
                     </div>
                   ))}
                 </div>
