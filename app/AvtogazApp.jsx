@@ -9768,6 +9768,7 @@ function AuditLogCard({ auditLog }) {
 
 function OwnerMonthlyReport({ data, rate }) {
   const [monthFilter, setMonthFilter] = useState(currentMonthKey());
+  const [otherOpen, setOtherOpen] = useState(false);
 
   const cf = data.cashflow || [];
   const monthCF = cf.filter((c) => (c.date || "").startsWith(monthFilter));
@@ -9796,9 +9797,20 @@ function OwnerMonthlyReport({ data, rate }) {
   const rahbarPay = monthCF.filter((c) => c.category === "Rahbarga chiqim").reduce((s, c) => s + num(c.amountSum), 0);
   const logistikaPay = monthCF.filter((c) => c.category === "Logistika").reduce((s, c) => s + num(c.amountSum), 0);
   const pitaniyaPay = monthCF.filter((c) => c.category === "Pitaniya").reduce((s, c) => s + num(c.amountSum), 0);
-  const otherExpense = monthCF
-    .filter((c) => c.type === "chiqim" && !["Ta'minotchiga to'lov", "Usta xizmat haqi", "Hujjat xarajati", "Ish haqi", "Rahbarga chiqim", "Logistika", "Pitaniya"].includes(c.category))
-    .reduce((s, c) => s + num(c.amountSum), 0);
+  const NAMED_EXPENSE_CATEGORIES = ["Ta'minotchiga to'lov", "Usta xizmat haqi", "Hujjat xarajati", "Ish haqi", "Rahbarga chiqim", "Logistika", "Pitaniya"];
+  const otherExpenseEntries = monthCF.filter((c) => c.type === "chiqim" && !NAMED_EXPENSE_CATEGORIES.includes(c.category));
+  const otherExpense = otherExpenseEntries.reduce((s, c) => s + num(c.amountSum), 0);
+  // "Boshqa xarajatlar" bitta katta raqam sifatida ko'rsatilsa, uning ichida aslida
+  // nima borligini bilib bo'lmaydi — shuning uchun toifa bo'yicha ajratib ko'rsatamiz.
+  const otherByCategory = Object.values(
+    otherExpenseEntries.reduce((acc, c) => {
+      const key = c.category || "Toifasiz";
+      if (!acc[key]) acc[key] = { category: key, total: 0, count: 0 };
+      acc[key].total += num(c.amountSum);
+      acc[key].count += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b.total - a.total);
 
   // MUHIM: "Rahbarga chiqim" — bu rahbarning ALLAQACHON topilgan foydadan shaxsan
   // olgan puli, biznes xarajati emas (ijaraga, ta'minotchiga to'lov kabi emas).
@@ -9835,23 +9847,51 @@ function OwnerMonthlyReport({ data, rate }) {
       }
     >
       <div style={{ display: "grid", gap: 2 }}>
-        {rows.map(([label, val, color, isBold]) => (
-          <div key={label} style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: isBold ? "14px 14px" : "9px 14px",
-            marginTop: isBold ? 8 : 0,
-            borderRadius: 8,
-            background: isBold ? T.flameD : "transparent",
-            borderTop: isBold ? `2px solid ${T.flame}` : "none",
-          }}>
-            <span style={{ fontSize: isBold ? 14 : 12.5, fontWeight: isBold ? 800 : 400, color: isBold ? T.text : T.muted }}>
-              {label}
-            </span>
-            <span className="mo" style={{ fontSize: isBold ? 18 : 13, fontWeight: isBold ? 800 : 600, color }}>
-              {val < 0 ? "−" : ""}{fmtSum(Math.abs(val))}
-            </span>
-          </div>
-        ))}
+        {rows.map(([label, val, color, isBold]) => {
+          const isOther = label === "Boshqa xarajatlar";
+          return (
+            <React.Fragment key={label}>
+              <div
+                onClick={isOther ? () => setOtherOpen((o) => !o) : undefined}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: isBold ? "14px 14px" : "9px 14px",
+                  marginTop: isBold ? 8 : 0,
+                  borderRadius: 8,
+                  background: isBold ? T.flameD : "transparent",
+                  borderTop: isBold ? `2px solid ${T.flame}` : "none",
+                  cursor: isOther ? "pointer" : "default",
+                }}
+                className={isOther ? "rh" : ""}
+              >
+                <span style={{
+                  fontSize: isBold ? 14 : 12.5, fontWeight: isBold ? 800 : 400, color: isBold ? T.text : T.muted,
+                  display: "flex", alignItems: "center", gap: 5,
+                }}>
+                  {label}
+                  {isOther && otherByCategory.length > 0 && (
+                    <ChevronDown size={12} style={{ transform: otherOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                  )}
+                </span>
+                <span className="mo" style={{ fontSize: isBold ? 18 : 13, fontWeight: isBold ? 800 : 600, color }}>
+                  {val < 0 ? "−" : ""}{fmtSum(Math.abs(val))}
+                </span>
+              </div>
+              {isOther && otherOpen && (
+                <div style={{ padding: "2px 14px 10px 26px", display: "grid", gap: 4 }} className="fi">
+                  {otherByCategory.length === 0 ? (
+                    <div style={{ fontSize: 12, color: T.muted, padding: "6px 0" }}>Bu oyda boshqa xarajat yo'q</div>
+                  ) : otherByCategory.map((g) => (
+                    <div key={g.category} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span style={{ color: T.muted2 }}>{g.category} <span style={{ color: T.muted }}>({g.count} ta)</span></span>
+                      <span className="mo" style={{ color: T.red, fontWeight: 600 }}>{fmtSum(g.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
 
       <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
