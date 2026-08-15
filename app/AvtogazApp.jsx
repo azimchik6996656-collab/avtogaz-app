@@ -9534,12 +9534,21 @@ function ParetoChart({ rows, height = 200 }) {
 }
 
 function AnalyticsTab({ data, patch, rate, readOnly = false }) {
+  const [openStat, setOpenStat] = useState(null);
+  const toggleStat = (key) => setOpenStat((s) => (s === key ? null : key));
+
   const cards = (data.serviceCards || []).filter((c) => cardStatus(c) !== "ochiq");
   const sumF = (arr, k) => arr.reduce((s, c) => s + num(c[k]), 0);
   const totalRevenue = sumF(cards, "finalTotal");
   const totalProfit = sumF(cards, "profitSum");
   const totalProductProfit = productProfitReport(data).reduce((s, r) => s + r.profit, 0);
   const azimKpi = num(data.settings.azimKpi);
+
+  // KPI kartochkalar bosilganda ochiladigan tafsilot ro'yxatlari — eng katta
+  // summadan boshlab, shu raqam qaysi yozuvlardan yig'ilganini ko'rsatadi.
+  const cardsByRevenue = [...cards].sort((a, b) => num(b.finalTotal) - num(a.finalTotal));
+  const cardsByProfit = [...cards].sort((a, b) => num(b.profitSum) - num(a.profitSum));
+  const kpiHistorySorted = [...(data.settings.azimKpiHistory || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   // Oylik dinamika
   const byMonth = {};
@@ -9620,14 +9629,23 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
         </p>
       </div>
 
-      {/* KPI scorecards — Stripe / Linear uslubi */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12, marginBottom: 18 }}>
-        <Stat label="Jami tushum" value={fmtSum(totalRevenue)} color={T.blue} Icon={TrendingUp} />
-        <Stat label="Jami foyda" value={fmtSum(totalProfit)} color={T.teal} Icon={TrendingUp} />
+      {/* KPI scorecards — Stripe / Linear uslubi. Har biri (Marjadan tashqari) bosilsa,
+          shu raqam qaysi yozuvlardan yig'ilgani pastda ochiladi. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12, marginBottom: openStat ? 10 : 18 }}>
+        <div onClick={() => toggleStat("tushum")} style={{ cursor: "pointer" }}>
+          <Stat label="Jami tushum" value={fmtSum(totalRevenue)} color={T.blue} Icon={TrendingUp} />
+        </div>
+        <div onClick={() => toggleStat("foyda")} style={{ cursor: "pointer" }}>
+          <Stat label="Jami foyda" value={fmtSum(totalProfit)} color={T.teal} Icon={TrendingUp} />
+        </div>
         <Stat label="Marja" value={marginPct + "%"} sub="foyda / tushum" color={marginPct >= 20 ? T.teal : T.gold} Icon={BarChart3} />
-        <Stat label="Mahsulot foydasi" value={fmtSum(totalProductProfit)} sub="tannarx farqi" color={T.purple} Icon={Package} />
+        <div onClick={() => toggleStat("mahsulot")} style={{ cursor: "pointer" }}>
+          <Stat label="Mahsulot foydasi" value={fmtSum(totalProductProfit)} sub="tannarx farqi" color={T.purple} Icon={Package} />
+        </div>
         {readOnly ? (
-          <Stat label="Azim KPI" value={fmtSum(azimKpi)} color={T.gold} Icon={Star} />
+          <div onClick={() => toggleStat("kpi")} style={{ cursor: "pointer" }}>
+            <Stat label="Azim KPI" value={fmtSum(azimKpi)} color={T.gold} Icon={Star} />
+          </div>
         ) : (
           <KpiEditCard value={azimKpi} history={data.settings.azimKpiHistory}
             onAdd={(amount, reason) => patch((d) => {
@@ -9638,6 +9656,69 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
             })} />
         )}
       </div>
+
+      {openStat && (
+        <Card
+          title={
+            openStat === "tushum" ? `Jami tushum — ${cardsByRevenue.length} ta karta`
+            : openStat === "foyda" ? `Jami foyda — ${cardsByRevenue.length} ta karta`
+            : openStat === "mahsulot" ? `Mahsulot foydasi — ${productProfitRows.length} ta mahsulot`
+            : `Azim KPI tarixi — ${kpiHistorySorted.length} ta yozuv`
+          }
+          pad={false}
+        >
+          <div style={{ maxHeight: 320, overflowY: "auto" }} className="fi">
+            {(openStat === "tushum" || openStat === "foyda") && (
+              cardsByRevenue.length === 0 ? (
+                <p style={{ padding: 16, fontSize: 12.5, color: T.muted }}>Yakunlangan karta yo'q</p>
+              ) : (openStat === "tushum" ? cardsByRevenue : cardsByProfit).map((c) => (
+                <div key={c.id} style={{
+                  display: "flex", justifyContent: "space-between", gap: 12,
+                  padding: "9px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5,
+                }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="mo" style={{ color: T.muted, marginRight: 8 }}>{c.date}</span>
+                    {c.carModel || c.plate || "—"} <span style={{ color: T.muted }}>· {c.serviceType || "—"}</span>
+                  </span>
+                  <span className="mo" style={{ fontWeight: 700, color: openStat === "tushum" ? T.blue : T.teal, flexShrink: 0 }}>
+                    {fmtSum(openStat === "tushum" ? c.finalTotal : c.profitSum)}
+                  </span>
+                </div>
+              ))
+            )}
+            {openStat === "mahsulot" && (
+              productProfitRows.length === 0 ? (
+                <p style={{ padding: 16, fontSize: 12.5, color: T.muted }}>Ma'lumot yo'q</p>
+              ) : productProfitRows.map((r) => (
+                <div key={r.name} style={{
+                  display: "flex", justifyContent: "space-between", gap: 12,
+                  padding: "9px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5,
+                }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>{r.name} <span style={{ color: T.muted }}>· {r.qty} dona</span></span>
+                  <span className="mo" style={{ fontWeight: 700, color: T.purple, flexShrink: 0 }}>{fmtSum(r.profit)}</span>
+                </div>
+              ))
+            )}
+            {openStat === "kpi" && (
+              kpiHistorySorted.length === 0 ? (
+                <p style={{ padding: 16, fontSize: 12.5, color: T.muted }}>Hali KPI yozuvi yo'q</p>
+              ) : kpiHistorySorted.map((h) => (
+                <div key={h.id} style={{
+                  display: "flex", justifyContent: "space-between", gap: 12,
+                  padding: "9px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5,
+                }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="mo" style={{ color: T.muted, marginRight: 8 }}>{h.date}</span>
+                    {h.reason || <span style={{ color: T.muted, fontStyle: "italic" }}>izohsiz</span>}
+                  </span>
+                  <span className="mo" style={{ fontWeight: 700, color: T.gold, flexShrink: 0 }}>{fmtSum(h.amount)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
+      <div style={{ marginBottom: openStat ? 18 : 0 }} />
 
       <Card title="Xizmat turlari — tushum va foyda">
         <div style={{ display: "grid", gap: 14 }}>
