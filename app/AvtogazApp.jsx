@@ -551,7 +551,9 @@ function doExportExcel(data, rate) {
 // to'q fonda ham yaxshi o'qiladi va SERVICE_COLORS kabi ma'noli (kategoriyaviy) ishlatilishlarga
 // ega, shuning uchun butun kod bo'ylab yuzlab alohida joyni o'zgartirmasdan bitta markazdan
 // butun ilovaning ko'rinishini yangilash mumkin bo'ldi.
-const T = {
+// Faqat LoginScreen uchun — u atayin quyuq (dark) fonda qoladi, chunki
+// login sahifasi allaqachon yaxshi ishlangan va o'zgartirish so'ralmagan.
+const LOGIN_T = {
   bg: "#11141A", s1: "#171B22", s2: "#1A1F27", s3: "#20262F", s4: "#282F39",
   border: "#2A3038", border2: "#3A424E",
   text: "#E4E7EC", muted: "#8B93A0", muted2: "#B4BBC6",
@@ -561,7 +563,21 @@ const T = {
   red: "#F41819", redD: "#F4181922",
   blue: "#2F76B4", blueD: "#2F76B422",
   purple: "#8B5CF6", purpleD: "#8B5CF622",
-  // Enterprise accentlar — SaaS dashboard uslubi
+  ink: "#0F172A", line: "#1E293B",
+};
+
+// Kirishdan keyingi butun ilova uchun — yorug' (light) fon, logotipdagi
+// ranglarga (oq/ko'k/qizil/olov) mos.
+const T = {
+  bg: "#F4F3EF", s1: "#FFFFFF", s2: "#FBFAF7", s3: "#F2F0EA", s4: "#E9E6DD",
+  border: "#E1DDD2", border2: "#CFC9BA",
+  text: "#211D16", muted: "#8B8570", muted2: "#4A4536",
+  flame: "#D9591A", flameD: "#D9591A1F",
+  gold: "#A6741C", goldD: "#A6741C1F",
+  teal: "#0E8C7E", tealD: "#0E8C7E1F",
+  red: "#D81315", redD: "#D813151F",
+  blue: "#2159A0", blueD: "#2159A01F",
+  purple: "#6D3FD1", purpleD: "#6D3FD11F",
   ink: "#0F172A", line: "#1E293B",
 };
 
@@ -2268,18 +2284,18 @@ function LoginScreen({ authError, onSuccess }) {
   const lockRemainMin = lockout.locked ? Math.max(1, Math.ceil((lockout.until - Date.now()) / 60000)) : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", position: "relative", overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", background: LOGIN_T.bg, display: "flex", position: "relative", overflow: "hidden" }}>
       <GlobalStyles />
       <style>{`
         .login-hero{position:relative;flex:1.15;display:flex;flex-direction:column;justify-content:space-between;
           padding:56px 64px;overflow:hidden;
-          background:radial-gradient(circle at 18% 12%, ${T.flame}22, transparent 55%),
-                     radial-gradient(circle at 82% 88%, ${T.teal}1c, transparent 50%),
-                     linear-gradient(160deg, ${T.s1}, ${T.bg} 75%);
-          border-right:1px solid ${T.border}}
+          background:radial-gradient(circle at 18% 12%, ${LOGIN_T.flame}22, transparent 55%),
+                     radial-gradient(circle at 82% 88%, ${LOGIN_T.teal}1c, transparent 50%),
+                     linear-gradient(160deg, ${LOGIN_T.s1}, ${LOGIN_T.bg} 75%);
+          border-right:1px solid ${LOGIN_T.border}}
         .login-hero-glow{position:absolute;border-radius:50%;filter:blur(130px);pointer-events:none;z-index:0}
-        .login-hero-glow-1{width:480px;height:480px;background:${T.flame}26;top:-160px;left:-120px}
-        .login-hero-glow-2{width:420px;height:420px;background:${T.teal}20;bottom:-140px;right:-100px}
+        .login-hero-glow-1{width:480px;height:480px;background:${LOGIN_T.flame}26;top:-160px;left:-120px}
+        .login-hero-glow-2{width:420px;height:420px;background:${LOGIN_T.teal}20;bottom:-140px;right:-100px}
         .login-hero-top{position:relative;z-index:1;display:flex;align-items:center;gap:7px}
         .login-hero-mid{position:relative;z-index:1}
         .login-hero-stats{position:relative;z-index:1;display:flex;gap:16px}
@@ -2299,8 +2315,8 @@ function LoginScreen({ authError, onSuccess }) {
         <div className="login-hero-glow login-hero-glow-1" />
         <div className="login-hero-glow login-hero-glow-2" />
         <div className="login-hero-top">
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: T.teal, boxShadow: `0 0 9px ${T.teal}99` }} />
-          <span style={{ fontSize: 11, fontWeight: 800, color: T.muted2, letterSpacing: ".03em" }}>Tizim onlayn</span>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: LOGIN_T.teal, boxShadow: `0 0 9px ${LOGIN_T.teal}99` }} />
+          <span style={{ fontSize: 11, fontWeight: 800, color: LOGIN_T.muted2, letterSpacing: ".03em" }}>Tizim onlayn</span>
         </div>
 
         <div className="login-hero-mid">
@@ -2310,37 +2326,37 @@ function LoginScreen({ authError, onSuccess }) {
           }}>
             <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 30, width: "auto" }} />
           </div>
-          <h1 className="bc" style={{ fontSize: 44, fontWeight: 800, color: T.text, lineHeight: 1.08, maxWidth: 480 }}>
+          <h1 className="bc" style={{ fontSize: 44, fontWeight: 800, color: LOGIN_T.text, lineHeight: 1.08, maxWidth: 480 }}>
             Xizmat boshqaruv paneli
           </h1>
-          <p style={{ fontSize: 14.5, color: T.muted, fontWeight: 600, marginTop: 14, maxWidth: 420, lineHeight: 1.6 }}>
+          <p style={{ fontSize: 14.5, color: LOGIN_T.muted, fontWeight: 600, marginTop: 14, maxWidth: 420, lineHeight: 1.6 }}>
             Servis, moliya, ombor va mijozlar bilan ishlash uchun yagona tizim.
           </p>
         </div>
 
         <div className="login-hero-stats">
           <div className="login-hero-stat">
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: LOGIN_T.muted, marginBottom: 8 }}>
               Vaqt
             </div>
-            <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: T.text }}>
+            <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: LOGIN_T.text }}>
               {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
             </div>
-            <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginTop: 3 }}>
+            <div style={{ fontSize: 11, color: LOGIN_T.muted, fontWeight: 600, marginTop: 3 }}>
               {now.getDate()}-{OY_NOM[now.getMonth()]}, {KUN_NOM[now.getDay()]}
             </div>
           </div>
           <div className="login-hero-stat">
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: LOGIN_T.muted, marginBottom: 8 }}>
               CBU rasmiy kursi
             </div>
             {cbu ? (
               <>
-                <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: T.text }}>{fmtSum(cbu.rate)}</div>
-                <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginTop: 3 }}>1 USD · {cbu.date}</div>
+                <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: LOGIN_T.text }}>{fmtSum(cbu.rate)}</div>
+                <div style={{ fontSize: 11, color: LOGIN_T.muted, fontWeight: 600, marginTop: 3 }}>1 USD · {cbu.date}</div>
               </>
             ) : (
-              <div style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>yuklanmoqda…</div>
+              <div style={{ fontSize: 12, color: LOGIN_T.muted, fontWeight: 600 }}>yuklanmoqda…</div>
             )}
           </div>
         </div>
@@ -2349,30 +2365,30 @@ function LoginScreen({ authError, onSuccess }) {
       <div className="login-side">
         <div style={{ width: "100%", maxWidth: 380 }}>
           <div className="login-mobile-info">
-            <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, borderRadius: 14, padding: "10px 14px" }}>
-              <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: T.text }}>
+            <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${LOGIN_T.border}`, borderRadius: 14, padding: "10px 14px" }}>
+              <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: LOGIN_T.text }}>
                 {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
               </div>
-              <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>{now.getDate()}-{OY_NOM[now.getMonth()]}</div>
+              <div style={{ fontSize: 10, color: LOGIN_T.muted, fontWeight: 600 }}>{now.getDate()}-{OY_NOM[now.getMonth()]}</div>
             </div>
-            <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, borderRadius: 14, padding: "10px 14px" }}>
-              <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{cbu ? fmtSum(cbu.rate) : "…"}</div>
-              <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>1 USD kursi</div>
+            <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${LOGIN_T.border}`, borderRadius: 14, padding: "10px 14px" }}>
+              <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: LOGIN_T.text }}>{cbu ? fmtSum(cbu.rate) : "…"}</div>
+              <div style={{ fontSize: 10, color: LOGIN_T.muted, fontWeight: 600 }}>1 USD kursi</div>
             </div>
           </div>
 
           <div style={{
-            background: `linear-gradient(160deg, ${T.s2}, ${T.s1})`,
+            background: `linear-gradient(160deg, ${LOGIN_T.s2}, ${LOGIN_T.s1})`,
             backdropFilter: "blur(28px) saturate(140%)", WebkitBackdropFilter: "blur(28px) saturate(140%)",
-            border: `1px solid ${T.flame}28`, borderRadius: 22,
+            border: `1px solid ${LOGIN_T.flame}28`, borderRadius: 22,
             boxShadow: "0 30px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05)",
             overflow: "hidden",
           }}>
             <div style={{ padding: "32px 30px 22px", textAlign: "center", position: "relative" }}>
-              <div className="mo" style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".18em", textTransform: "uppercase", color: T.muted2, marginBottom: 6 }}>
+              <div className="mo" style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".18em", textTransform: "uppercase", color: LOGIN_T.muted2, marginBottom: 6 }}>
                 Xush kelibsiz
               </div>
-              <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: T.teal }}>{APP_VERSION}</div>
+              <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: LOGIN_T.teal }}>{APP_VERSION}</div>
             </div>
 
             <div style={{ padding: "22px 30px 0" }}>
@@ -2382,7 +2398,7 @@ function LoginScreen({ authError, onSuccess }) {
                 style={{
                   width: "100%", padding: 13, borderRadius: 14, border: "1px solid rgba(255,255,255,.14)",
                   cursor: googleBusy ? "not-allowed" : "pointer", background: "rgba(255,255,255,.05)",
-                  color: T.text, fontWeight: 700, fontSize: 13.5, fontFamily: "inherit",
+                  color: LOGIN_T.text, fontWeight: 700, fontSize: 13.5, fontFamily: "inherit",
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
                 }}
               >
@@ -2397,7 +2413,7 @@ function LoginScreen({ authError, onSuccess }) {
                 Google orqali kirish (ofis xodimi)
               </button>
               {(googleError || authError) && (
-                <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: 10, fontWeight: 600 }}>
+                <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginTop: 10, fontWeight: 600 }}>
                   {googleError || authError}
                 </p>
               )}
@@ -2405,12 +2421,12 @@ function LoginScreen({ authError, onSuccess }) {
               {!emailFormOpen ? (
                 <button onClick={() => setEmailFormOpen(true)} style={{
                   display: "block", width: "100%", background: "none", border: "none", cursor: "pointer",
-                  color: T.muted, fontSize: 11.5, fontWeight: 600, marginTop: 12, textDecoration: "underline",
+                  color: LOGIN_T.muted, fontSize: 11.5, fontWeight: 600, marginTop: 12, textDecoration: "underline",
                 }}>
                   Google hisobim yo'q — email orqali kirish
                 </button>
               ) : emailSent ? (
-                <p style={{ fontSize: 12, color: T.teal, textAlign: "center", marginTop: 12, fontWeight: 600, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 12, color: LOGIN_T.teal, textAlign: "center", marginTop: 12, fontWeight: 600, lineHeight: 1.5 }}>
                   Havola <span className="mo">{emailInput}</span> manziliga yuborildi — emailingizni ochib, havolani bosing.
                 </p>
               ) : (
@@ -2418,20 +2434,20 @@ function LoginScreen({ authError, onSuccess }) {
                   <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)}
                     placeholder="sizning@email.com" autoFocus
                     style={{
-                      width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border2}`,
-                      background: "rgba(255,255,255,.04)", color: T.text, fontSize: 13, marginBottom: 8,
+                      width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${LOGIN_T.border2}`,
+                      background: "rgba(255,255,255,.04)", color: LOGIN_T.text, fontSize: 13, marginBottom: 8,
                       fontFamily: "inherit", boxSizing: "border-box",
                     }} />
                   <button onClick={handleEmailSignIn} disabled={emailBusy || !emailInput.trim()} style={{
                     width: "100%", padding: 11, borderRadius: 10, border: "none",
                     cursor: emailBusy || !emailInput.trim() ? "not-allowed" : "pointer",
-                    background: emailInput.trim() ? T.teal : "rgba(255,255,255,.06)",
-                    color: emailInput.trim() ? "#fff" : T.muted, fontWeight: 700, fontSize: 13, fontFamily: "inherit",
+                    background: emailInput.trim() ? LOGIN_T.teal : "rgba(255,255,255,.06)",
+                    color: emailInput.trim() ? "#fff" : LOGIN_T.muted, fontWeight: 700, fontSize: 13, fontFamily: "inherit",
                   }}>
                     {emailBusy ? "Yuborilmoqda..." : "Havola yuborish"}
                   </button>
                   {emailError && (
-                    <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: 8, fontWeight: 600 }}>{emailError}</p>
+                    <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginTop: 8, fontWeight: 600 }}>{emailError}</p>
                   )}
                 </div>
               )}
@@ -2440,11 +2456,11 @@ function LoginScreen({ authError, onSuccess }) {
             <div style={{ padding: "18px 30px 30px" }}>
               <div style={{
                 fontSize: 10.5, fontWeight: 800, letterSpacing: ".16em", textTransform: "uppercase",
-                color: T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
+                color: LOGIN_T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
               }}>
-                <span style={{ flex: 1, height: 1, background: `${T.flame}30` }} />
+                <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
                 Usta / ta'minotchi / hamkor / rahbar — PIN
-                <span style={{ flex: 1, height: 1, background: `${T.flame}30` }} />
+                <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
               </div>
 
               <div className={error ? "pulse" : ""} style={{
@@ -2453,19 +2469,19 @@ function LoginScreen({ authError, onSuccess }) {
                 {Array.from({ length: 4 }).map((_, i) => (
                   <span key={i} style={{
                     width: 11, height: 11, borderRadius: "50%",
-                    background: error ? T.red : i < digits.length ? T.flame : "rgba(255,255,255,.14)",
-                    boxShadow: !error && i < digits.length ? `0 0 14px ${T.flame}A0` : "none",
+                    background: error ? LOGIN_T.red : i < digits.length ? LOGIN_T.flame : "rgba(255,255,255,.14)",
+                    boxShadow: !error && i < digits.length ? `0 0 14px ${LOGIN_T.flame}A0` : "none",
                     transition: "background .15s, box-shadow .15s",
                   }} />
                 ))}
               </div>
               {lockout.locked && (
-                <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: -12, marginBottom: 16, fontWeight: 600 }}>
+                <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginTop: -12, marginBottom: 16, fontWeight: 600 }}>
                   Juda ko'p urinish. {lockRemainMin} daqiqadan keyin qayta urinib ko'ring.
                 </p>
               )}
               {!lockout.locked && error && (
-                <p style={{ fontSize: 12, color: T.red, textAlign: "center", marginTop: -12, marginBottom: 16, fontWeight: 600 }}>
+                <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginTop: -12, marginBottom: 16, fontWeight: 600 }}>
                   PIN noto'g'ri{lockout.attempts ? ` (${lockout.attempts}/5)` : ""}
                 </p>
               )}
@@ -2474,21 +2490,21 @@ function LoginScreen({ authError, onSuccess }) {
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
                   <button key={n} onClick={() => press(String(n))} style={{
                     background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-                    color: T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
+                    color: LOGIN_T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
                     fontFamily: "inherit",
                   }} className="mo">{n}</button>
                 ))}
                 <button onClick={() => setDigits("")} style={{
                   background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-                  color: T.muted2, fontSize: 15, fontWeight: 700, padding: "16px 0", cursor: "pointer",
+                  color: LOGIN_T.muted2, fontSize: 15, fontWeight: 700, padding: "16px 0", cursor: "pointer",
                 }}>C</button>
                 <button onClick={() => press("0")} style={{
                   background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-                  color: T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
+                  color: LOGIN_T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
                 }} className="mo">0</button>
                 <button onClick={() => !error && setDigits((s) => s.slice(0, -1))} style={{
                   background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
-                  color: T.muted2, padding: "16px 0", cursor: "pointer",
+                  color: LOGIN_T.muted2, padding: "16px 0", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}><Delete size={18} /></button>
               </div>
@@ -2498,15 +2514,15 @@ function LoginScreen({ authError, onSuccess }) {
                 disabled={!canEnter}
                 style={{
                   width: "100%", padding: 15, borderRadius: 14, border: "none", cursor: canEnter ? "pointer" : "not-allowed",
-                  background: canEnter ? `linear-gradient(135deg, ${T.flame}, #BF360C)` : "rgba(255,255,255,.06)",
-                  color: canEnter ? "#fff" : T.muted,
+                  background: canEnter ? `linear-gradient(135deg, ${LOGIN_T.flame}, #BF360C)` : "rgba(255,255,255,.06)",
+                  color: canEnter ? "#fff" : LOGIN_T.muted,
                   fontWeight: 800, fontSize: 14.5, letterSpacing: ".01em",
-                  boxShadow: canEnter ? `0 10px 26px ${T.flame}45` : "none",
+                  boxShadow: canEnter ? `0 10px 26px ${LOGIN_T.flame}45` : "none",
                 }}
               >
                 Kirish
               </button>
-              <p style={{ fontSize: 10.5, color: T.muted, textAlign: "center", marginTop: 12, fontWeight: 600 }}>
+              <p style={{ fontSize: 10.5, color: LOGIN_T.muted, textAlign: "center", marginTop: 12, fontWeight: 600 }}>
                 4 xonali shaxsiy kod — usta, ta'minotchi yoki hamkor uchun
               </p>
             </div>
