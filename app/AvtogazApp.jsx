@@ -552,9 +552,9 @@ function doExportExcel(data, rate) {
 // ega, shuning uchun butun kod bo'ylab yuzlab alohida joyni o'zgartirmasdan bitta markazdan
 // butun ilovaning ko'rinishini yangilash mumkin bo'ldi.
 const T = {
-  bg: "#0B0D10", s1: "#12151A", s2: "#161A20", s3: "#1C2128", s4: "#232932",
+  bg: "#11141A", s1: "#171B22", s2: "#1A1F27", s3: "#20262F", s4: "#282F39",
   border: "#2A3038", border2: "#3A424E",
-  text: "#F0F2F4", muted: "#8B93A0", muted2: "#B4BBC6",
+  text: "#E4E7EC", muted: "#8B93A0", muted2: "#B4BBC6",
   flame: "#E85A2A", flameD: "#E85A2A22",
   gold: "#C9922A", goldD: "#C9922A22",
   teal: "#14B8A6", tealD: "#14B8A622",
@@ -584,10 +584,10 @@ function GlobalStyles() {
       ::-webkit-scrollbar-track{background:${T.bg}}
       ::-webkit-scrollbar-thumb{background:${T.border2};border-radius:3px}
       .rh:hover{background:${T.flameD}!important}
-      .stat-card{transition:box-shadow .15s, transform .15s}
-      .stat-card:hover{box-shadow:0 4px 16px rgba(20,30,45,.09);transform:translateY(-1px)}
-      .ch:hover{border-color:${T.flame}!important;transform:translateY(-2px);box-shadow:0 4px 14px rgba(30,41,59,.08)}
-      .card-shadow{box-shadow:0 1px 2px rgba(20,30,45,.04), 0 1px 1px rgba(20,30,45,.03)}
+      .stat-card{transition:box-shadow .15s ease, transform .15s ease, border-color .15s ease}
+      .stat-card:hover{box-shadow:0 8px 24px rgba(0,0,0,.35), 0 0 0 1px ${T.flame}30;transform:translateY(-2px);border-color:${T.flame}50!important}
+      .ch:hover{border-color:${T.flame}!important;transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.35)}
+      .card-shadow{box-shadow:0 1px 2px rgba(0,0,0,.3), 0 1px 1px rgba(0,0,0,.2)}
       @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
       @keyframes spin{to{transform:rotate(360deg)}}
       @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
@@ -673,7 +673,7 @@ function SearchSelect({ value, onChange, options, placeholder, emptyText }) {
         <div className="fi" style={{
           position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50,
           background: T.s1, border: `1px solid ${T.border2}`, borderRadius: 9,
-          boxShadow: "0 10px 28px rgba(20,30,45,.16)", maxHeight: 240, overflowY: "auto",
+          boxShadow: "0 10px 28px rgba(0,0,0,.4)", maxHeight: 240, overflowY: "auto",
         }}>
           {filtered.length === 0 ? (
             <div style={{ padding: "12px 14px", fontSize: 12.5, color: T.muted }}>{emptyText || "Topilmadi"}</div>
@@ -723,7 +723,7 @@ function Modal({ title, onClose, children, wide, xwide }) {
         maxHeight: "calc(100vh - 36px)",
         background: T.s1, border: `1px solid ${T.border2}`,
         borderRadius: 14, overflow: "hidden",
-        boxShadow: "0 20px 60px rgba(20,30,45,.25)",
+        boxShadow: "0 20px 60px rgba(0,0,0,.5)",
         display: "flex", flexDirection: "column",
       }}>
         {/* SARLAVHA — doim ko'rinib turadi */}
@@ -1470,7 +1470,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
         <div style={{
           position: "absolute", right: 0, top: "calc(100% + 8px)",
           width: 220, background: T.s1, border: `1px solid ${T.border2}`,
-          borderRadius: 11, boxShadow: "0 12px 32px rgba(20,30,45,.18)",
+          borderRadius: 11, boxShadow: "0 12px 32px rgba(0,0,0,.45)",
           overflow: "hidden", zIndex: 300,
         }} className="fi">
           {(role === "azim") && (
@@ -1946,7 +1946,7 @@ function Stat({ label, value, sub, color, Icon, spark }) {
           <Icon size={13} color={color} />
         </div>}
       </div>
-      <div className="mo bc" style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1.1, letterSpacing: "-.01em" }}>{value}</div>
+      <div className="mo bc" style={{ fontSize: 20, fontWeight: 700, color: T.text, lineHeight: 1.1, letterSpacing: "-.01em" }}>{value}</div>
       {(sub || spark) && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 5 }}>
           {sub && <div style={{ fontSize: 10.5, color: T.muted, lineHeight: 1.4 }}>{sub}</div>}
@@ -2938,20 +2938,21 @@ export default function App() {
         padding: "0 20px", height: 54, display: "flex",
         alignItems: "center", justifyContent: "space-between",
         position: "sticky", top: 0, zIndex: 100,
-        boxShadow: "0 1px 2px rgba(20,30,45,.04)",
+        boxShadow: "0 1px 2px rgba(0,0,0,.3)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: `linear-gradient(135deg,${T.flame},#BF360C)`,
+            background: "#FBFAF8", borderRadius: 8, padding: "5px 9px",
             display: "flex", alignItems: "center", justifyContent: "center",
-          }}><Zap size={16} color="#fff" /></div>
+            boxShadow: "0 2px 8px rgba(0,0,0,.3)", flexShrink: 0,
+          }}><img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 15, width: "auto" }} /></div>
           <div>
             <div className="bc" style={{
-              fontSize: 15, fontWeight: 800, letterSpacing: ".05em", lineHeight: 1,
-              display: "flex", alignItems: "center", gap: 8,
+              fontSize: 11, fontWeight: 800, letterSpacing: ".08em", lineHeight: 1,
+              display: "flex", alignItems: "center", gap: 8, color: T.muted2,
+              textTransform: "uppercase",
             }}>
-              AVTOGAZ SERVICE
+              Xizmat paneli
               <span className="mo" style={{
                 fontSize: 9, fontWeight: 700, color: T.teal, background: T.tealD,
                 border: `1px solid ${T.teal}35`, borderRadius: 5, padding: "2px 6px",
