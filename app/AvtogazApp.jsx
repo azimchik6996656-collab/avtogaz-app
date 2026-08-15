@@ -586,10 +586,15 @@ const SERVICE_COLORS = {
   "Detailing": T.purple, "Moy bo'limi": T.gold,
 };
 
+// Diqqat: CSS matni <style> tegiga BOLA sifatida ({`...`}) berilsa, React uni server
+// tomonida HTML-escape qiladi (apostrof -> &#x27;, & -> &amp;, < -> &lt;), mijozda esa
+// yo'q. Bizning CSS'da apostrof bor ("font-family:'Barlow'"), shuning uchun server va
+// mijoz HTML'i mos kelmay, React butun sahifani tashlab qaytadan chizardi (konsolda
+// "Text content does not match server-rendered HTML"). dangerouslySetInnerHTML esa
+// matnni o'zgartirmasdan, ikkala tomonda bir xil chiqaradi.
+// Shriftlarning o'zi app/layout.js dagi <link> orqali yuklanadi.
 function GlobalStyles() {
-  return (
-    <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  const css = `
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
       body{background:${T.bg};color:${T.text};font-family:'Barlow',sans-serif;font-size:14px;line-height:1.5}
       .bc{font-family:'Barlow Condensed',sans-serif}
@@ -616,8 +621,8 @@ function GlobalStyles() {
       select{appearance:none}
       @media(max-width:640px){.hide-sm{display:none!important}}
       .menu-item:hover{background:${T.s3}!important}
-    `}</style>
-  );
+    `;
+  return <style dangerouslySetInnerHTML={{ __html: css }} />;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -8264,11 +8269,18 @@ function EmployeesTab({ data, patch, rate }) {
   // "Oylik to'lash" tugmasi (payEmployee) bosilganda xuddi shu ismni o'z ichiga olgan
   // "Ish haqi" yozuvi avtomatik yaratiladi: "<ism> — <lavozim> oyligi (<oy>)". U
   // allaqachon d.employeePayments orqali paidThisMonthAmount()'da hisoblangan — shu
-  // yerga ham tushib qolsa, bir xil to'lov ikki marta ayirilib ketardi. Faqat aynan
-  // shu naqshga mos yozuvni chiqarib tashlaymiz — oddiy "oyligi (" so'zini emas, aks
-  // holda boshqa (haqiqiy avans) yozuvlar ham tasodifan shu so'zni o'z ichiga olsa,
-  // ular ham noto'g'ri chiqarib tashlanadi (masalan "Sales manager oyligi (2026-07)").
+  // yerga ham tushib qolsa, bir xil to'lov ikki marta ayirilib ketardi.
+  //
+  // Yangi yozuvlarda buni employeePaymentId bog'lanishi aniq ajratadi. Undan oldin
+  // yaratilgan (bog'lanishsiz) yozuvlar uchun matn naqshiga qaraymiz: aynan
+  // "<ism> — <lavozim> oyligi (" bilan BOSHLANISHI shart. Shunchaki "oyligi (" so'zini
+  // qidirish yaramaydi — haqiqiy avans yozuvi ham shu so'zni o'z ichiga olishi mumkin
+  // ("Sales manager oyligi (2026-07)"), u holda haqiqiy avans noto'g'ri chiqib ketardi.
   const azimFormalPayNotePrefix = azimEmp ? `${azimEmp.name} — ${azimEmp.position} oyligi (`.toLowerCase() : null;
+  const isFormalSalaryPayment = (c) =>
+    c.employeePaymentId
+      ? true
+      : !!(azimFormalPayNotePrefix && (c.note || "").toLowerCase().startsWith(azimFormalPayNotePrefix));
   const azimDrawEntries = azimNameKeys.length
     ? (data.cashflow || [])
         .filter((c) => c.category === "Ish haqi" && c.date >= drawFrom && c.date <= drawTo
@@ -8276,7 +8288,7 @@ function EmployeesTab({ data, patch, rate }) {
           // "... kassa iyulgacha yopildi" — bu iyul oyini yopish (eski hisob) yozuvi,
           // yangi avgust avansi emas, shuning uchun bu yerga hisoblanmaydi.
           && !(c.note || "").toLowerCase().includes("йопилди")
-          && !(azimFormalPayNotePrefix && (c.note || "").toLowerCase().startsWith(azimFormalPayNotePrefix)))
+          && !isFormalSalaryPayment(c))
         .sort((a, b) => a.date.localeCompare(b.date))
     : [];
   const monthAzimDraws = azimDrawEntries.reduce((s, c) => s + num(c.amountSum), 0);
@@ -8301,10 +8313,16 @@ function EmployeesTab({ data, patch, rate }) {
   function payEmployee(employeeId, amountSum, month, note) {
     runLocked(() => patch((d) => {
       d.employeePayments = d.employeePayments || [];
-      d.employeePayments.push({ id: uid(), employeeId, month, date: todayISO(), amountSum, note });
+      const paymentId = uid();
+      d.employeePayments.push({ id: paymentId, employeeId, month, date: todayISO(), amountSum, note });
       d.cashflow.unshift({
         id: uid(), date: todayISO(), type: "chiqim", category: "Ish haqi",
         currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate,
+        // Bu yozuv rasmiy "Oylik to'lash" natijasi — u allaqachon employeePayments'da
+        // hisoblangan. Avans qidiruvi (azimDrawEntries) uni matn bo'yicha emas, aynan
+        // shu bog'lanish orqali ajratadi: xodim ismi yoki lavozimi keyin o'zgartirilsa
+        // ham bog'lanish buzilmaydi.
+        employeePaymentId: paymentId,
         note: `${d.employees.find((e) => e.id === employeeId)?.name || ""} — ${d.employees.find((e) => e.id === employeeId)?.position || ""} oyligi (${month})`,
       });
       return d;
