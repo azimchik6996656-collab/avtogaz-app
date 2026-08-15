@@ -2344,10 +2344,10 @@ function LoginScreen({ authError, onSuccess }) {
             </p>
           </div>
           <div style={{
-            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 14, padding: "10px 16px",
-            boxShadow: "0 12px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
+            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 16, padding: "14px 20px",
+            boxShadow: "0 14px 32px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.5)",
           }}>
-            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 46, width: "auto" }} />
+            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 69, width: "auto" }} />
           </div>
         </div>
 
