@@ -8256,7 +8256,12 @@ function EmployeesTab({ data, patch, rate }) {
           && azimNameKeys.some((k) => (c.note || "").toLowerCase().includes(k))
           // "... kassa iyulgacha yopildi" — bu iyul oyini yopish (eski hisob) yozuvi,
           // yangi avgust avansi emas, shuning uchun bu yerga hisoblanmaydi.
-          && !(c.note || "").toLowerCase().includes("йопилди"))
+          && !(c.note || "").toLowerCase().includes("йопилди")
+          // "Oylik to'lash" tugmasi (payEmployee) bosilganda ham xuddi shu ismni o'z
+          // ichiga olgan "Ish haqi" yozuvi avtomatik yaratiladi ("... oyligi (YYYY-MM)").
+          // U allaqachon d.employeePayments orqali paidThisMonthAmount()'da hisoblangan —
+          // shu yerga ham tushib qolsa, bir xil to'lov ikki marta ayirilib ketardi.
+          && !(c.note || "").toLowerCase().includes("oyligi ("))
         .sort((a, b) => a.date.localeCompare(b.date))
     : [];
   const monthAzimDraws = azimDrawEntries.reduce((s, c) => s + num(c.amountSum), 0);
