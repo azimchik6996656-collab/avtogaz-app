@@ -2334,19 +2334,21 @@ function LoginScreen({ authError, onSuccess }) {
           <span style={{ fontSize: 11, fontWeight: 800, color: LOGIN_T.muted2, letterSpacing: ".03em" }}>Tizim onlayn</span>
         </div>
 
-        <div className="login-hero-mid">
-          <div style={{
-            display: "inline-flex", background: "#FBFAF8", borderRadius: 14, padding: "10px 16px",
-            marginBottom: 26, boxShadow: "0 12px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
-          }}>
-            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 30, width: "auto" }} />
+        <div className="login-hero-mid" style={{ display: "flex", alignItems: "center", gap: 28 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 className="bc" style={{ fontSize: 44, fontWeight: 800, color: LOGIN_T.text, lineHeight: 1.08, maxWidth: 480 }}>
+              Xizmat boshqaruv paneli
+            </h1>
+            <p style={{ fontSize: 14.5, color: LOGIN_T.muted, fontWeight: 600, marginTop: 14, maxWidth: 420, lineHeight: 1.6 }}>
+              Servis, moliya, ombor va mijozlar bilan ishlash uchun yagona tizim.
+            </p>
           </div>
-          <h1 className="bc" style={{ fontSize: 44, fontWeight: 800, color: LOGIN_T.text, lineHeight: 1.08, maxWidth: 480 }}>
-            Xizmat boshqaruv paneli
-          </h1>
-          <p style={{ fontSize: 14.5, color: LOGIN_T.muted, fontWeight: 600, marginTop: 14, maxWidth: 420, lineHeight: 1.6 }}>
-            Servis, moliya, ombor va mijozlar bilan ishlash uchun yagona tizim.
-          </p>
+          <div style={{
+            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 14, padding: "10px 16px",
+            boxShadow: "0 12px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
+          }}>
+            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 46, width: "auto" }} />
+          </div>
         </div>
 
         <div className="login-hero-stats">
