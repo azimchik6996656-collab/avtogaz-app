@@ -6475,6 +6475,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
         paymentType: meta.paymentType, supplier: supplierName,
         note: `Qarz to'lovi — ${supplierName}${meta.paymentType ? ` (${meta.paymentType})` : ""}${res.applied ? ` · yechildi ${fmtSum(res.applied)}` : ""}`,
         debtSettleKind: "supplier",
+        debtSettleId: supplierName,
       });
       return d;
     }));
@@ -6652,12 +6653,17 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                 { k: "del", h: "", r: (r) => (
                   <button
                     onClick={async () => {
+                      // Eski (fix'dan oldingi) "Qarz to'lovi" yozuvlarida debtSettleId
+                      // yozilmagan bo'lishi mumkin — supplier kind uchun r.supplier
+                      // maydoniga qaytamiz, aks holda bunday eski yozuvlar hech qachon
+                      // qarzni to'g'ri qaytarolmaydi.
+                      const settleId = r.debtSettleId || (r.debtSettleKind === "supplier" ? r.supplier : undefined);
                       const msg = r.debtSettleKind
-                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${r.debtSettleId || ""}") ham shu summaga qaytariladi.`
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${settleId || ""}") ham shu summaga qaytariladi.`
                         : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
                       if (!(await askConfirm(msg))) return;
                       patch((d) => {
-                        if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, r.debtSettleId, num(r.amountSum));
+                        if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, settleId, num(r.amountSum));
                         d.cashflow = d.cashflow.filter((x) => x.id !== r.id);
                         return d;
                       });
