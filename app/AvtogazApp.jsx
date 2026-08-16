@@ -3167,7 +3167,7 @@ export default function App() {
       <div key={tab} style={{ padding: "22px 20px", maxWidth: 1400, margin: "0 auto" }} className="fi">
         {tab === "dashboard"  && <DashboardTab  data={data} patch={patch} rate={rate} setTab={setTab} />}
         {tab === "callcenter" && <CallCenterTab data={data} patch={patch} />}
-        {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} />}
+        {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} saveState={saveState} />}
         {tab === "warehouse"  && <WarehouseTab  data={data} patch={patch} rate={rate} role={role} />}
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
@@ -4201,7 +4201,7 @@ function NewLeadModal({ onClose, onSave }) {
 /* ═══════════════════════════════════════════════════
    SERVICES TAB
 ═══════════════════════════════════════════════════ */
-function ServicesTab({ data, patch, rate, role, ustaName }) {
+function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   const [newOpen, setNewOpen] = useState(false);
   const [workCard, setWorkCard] = useState(null);
   const [search, setSearch] = useState("");
@@ -4725,6 +4725,7 @@ function ServicesTab({ data, patch, rate, role, ustaName }) {
           products={data.products}
           role={role}
           rate={rate}
+          saveState={saveState}
           noteSuggestions={noteSuggestions}
           onClose={() => setWorkCard(null)}
           onAddPart={(p) => addPart(workCard.id, p)}
@@ -5003,7 +5004,7 @@ function EditFinishedCardModal({ card, products, ustaNames, onClose, onSave }) {
   );
 }
 
-function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, onAddPart, onAddNewProduct, onRemovePart, onAddFee, onRemoveFee, onFinalize, onProductRequest }) {
+function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions, onClose, onAddPart, onAddNewProduct, onRemovePart, onAddFee, onRemoveFee, onFinalize, onProductRequest }) {
   const isUsta = role === "usta";
   const isSklad = role === "sklad";
   const hideFinance = isUsta || isSklad; // Sklad ham narx/foyda va yakunlashni ko'rmaydi, faqat mahsulot biriktiradi
@@ -5021,6 +5022,8 @@ function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, o
   const [npPrice, setNpPrice] = useState("");
   const [npQty, setNpQty] = useState(1);
   const [reqSent, setReqSent] = useState(false);
+  const [addPartError, setAddPartError] = useState("");
+  const [addFeeError, setAddFeeError] = useState("");
 
   const parts = card.parts || [];
   const fees = card.ustaFeeEntries || [];
@@ -5031,9 +5034,15 @@ function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, o
   const useSalePrice = card.serviceType === "Servis" || card.serviceType === "Moy bo'limi";
 
   function add() {
+    setAddPartError("");
     const p = products.find((x) => x.id === productId);
-    if (!p) return;
-    const q = num(qty); if (q <= 0 || q > num(p.qty)) return;
+    if (!p) { setAddPartError("Mahsulot tanlanmagan — ro'yxatdan tanlang."); return; }
+    const q = num(qty);
+    if (q <= 0) { setAddPartError("Miqdorni to'g'ri kiriting."); return; }
+    if (q > num(p.qty)) {
+      setAddPartError(`Skladda yetarli emas: "${p.name}" — bor-yo'g'i ${p.qty} ${p.unit}. Kamroq son kiriting yoki "Skladda yo'q mahsulot" orqali qo'shing.`);
+      return;
+    }
     const unit = useSalePrice ? num(p.priceSum) : num(p.costSum);
     onAddPart({
       productId: p.id, name: p.name, qty: q,
@@ -5054,7 +5063,9 @@ function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, o
   }
 
   function addFeeFn() {
-    const a = num(feeAmount); if (a <= 0) return;
+    setAddFeeError("");
+    const a = num(feeAmount);
+    if (a <= 0) { setAddFeeError("Summani to'g'ri kiriting (masalan: 50000)."); return; }
     onAddFee(a, feeNote.trim());
     setFeeAmount(""); setFeeNote("");
   }
@@ -5076,6 +5087,19 @@ function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, o
 
   return (
     <Modal title={`${card.plate} — ${card.carModel || ""}`} onClose={onClose} wide>
+      {(saveState === "error" || saveState === "conflict") && (
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14,
+          background: T.redD, border: `1px solid ${T.red}60`, borderRadius: 9, padding: "10px 13px",
+        }}>
+          <AlertTriangle size={15} color={T.red} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 12.5, color: T.red, lineHeight: 1.5 }}>
+            {saveState === "conflict"
+              ? "Diqqat: ma'lumotlar serverga saqlanmayapti (boshqa qurilma yangilagan). Sahifani qayta yuklang, aks holda bu yozuvlar yo'qolishi mumkin."
+              : "Diqqat: internet aloqasi yo'q yoki server bilan bog'lanib bo'lmadi — o'zgarishlar hali saqlanmadi. Internetni tekshiring."}
+          </span>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, flexWrap: "wrap" }}>
         <Badge color={T.gold}>OCHIQ</Badge>
         <Badge color={SERVICE_COLORS[card.serviceType]}>{card.serviceType}</Badge>
@@ -5136,6 +5160,11 @@ function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, o
           <input type="number" style={{ ...iSt, width: 72 }} value={qty} onChange={(e) => setQty(e.target.value)} />
           <Btn onClick={add} size="md"><Plus size={14} /></Btn>
         </div>
+        {addPartError && (
+          <div style={{ fontSize: 11.5, color: T.red, marginBottom: parts.length ? 10 : 2, lineHeight: 1.5 }}>
+            ⚠ {addPartError}
+          </div>
+        )}
         {parts.map((p, i) => (
           <div key={i} style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -5204,6 +5233,11 @@ function CardWorkspace({ card, products, role, rate, noteSuggestions, onClose, o
           </datalist>
           <Btn onClick={addFeeFn} size="md"><Plus size={14} /></Btn>
         </div>
+        {addFeeError && (
+          <div style={{ fontSize: 11.5, color: T.red, marginBottom: fees.length ? 10 : 2, lineHeight: 1.5 }}>
+            ⚠ {addFeeError}
+          </div>
+        )}
         {fees.map((e) => (
           <div key={e.id} style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
