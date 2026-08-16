@@ -416,6 +416,76 @@ function applyDebtSettlement(d, settle, amountSum) {
   return { applied: 0, label: "" };
 }
 
+// applyDebtSettlement()ning teskarisi — shu funksiya bilan yozilgan qarz to'lovini
+// bekor qilish (kassa yozuvini o'chirishda) uchun. Har bir "kind" o'ziga mos yozuvni
+// qanday oshirgan bo'lsa, shuni xuddi shu tartibda (oxirgisidan boshlab) kamaytiradi.
+function reverseDebtSettlement(d, kind, id, amountSum) {
+  if (!kind || !amountSum) return;
+  let remaining = amountSum;
+
+  if (kind === "nasiya") {
+    const n = (d.nasiyaDebts || []).find((x) => x.id === id);
+    if (n) {
+      const undo = Math.min(num(n.paidAmount || 0), remaining);
+      n.paidAmount = num(n.paidAmount || 0) - undo;
+      if (n.paidAmount < num(n.amountSum) - 0.5) n.paid = false;
+    }
+    return;
+  }
+  if (kind === "personal") {
+    const p = (d.personalDebts || []).find((x) => x.id === id);
+    if (p) {
+      const undo = Math.min(num(p.paidAmount || 0), remaining);
+      p.paidAmount = num(p.paidAmount || 0) - undo;
+      if (p.paidAmount < num(p.amountSum) - 0.5) p.paid = false;
+    }
+    return;
+  }
+  if (kind === "old") {
+    const o = (d.oldDebtors || []).find((x) => x.id === id);
+    if (o) {
+      const undo = Math.min(num(o.paidAmount || 0), remaining);
+      o.paidAmount = num(o.paidAmount || 0) - undo;
+      if (o.paidAmount < num(o.amountSum) - 0.5) o.paid = false;
+    }
+    return;
+  }
+  if (kind === "wholesale") {
+    const w = (d.wholesaleDebts || []).find((x) => x.id === id);
+    if (w) {
+      const undo = Math.min(num(w.paidAmount || 0), remaining);
+      w.paidAmount = num(w.paidAmount || 0) - undo;
+      if (w.paidAmount < num(w.amountSum) - 0.5) w.paid = false;
+    }
+    return;
+  }
+  if (kind === "supplier") {
+    const supplierName = id;
+    // To'lov qo'llanganda avval stockIns (eskisidan), keyin oldSupplierDebts (eskisidan)
+    // to'ldirilgan edi — bekor qilishda TESKARI tartibda: avval oldSupplierDebts
+    // (yangisidan), keyin stockIns (yangisidan) kamaytiriladi.
+    const paidOld = (d.oldSupplierDebts || [])
+      .filter((o) => sameName(o.name, supplierName) && num(o.paidAmount || 0) > 0.5)
+      .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    for (const o of paidOld) {
+      if (remaining <= 0.5) break;
+      const undo = Math.min(num(o.paidAmount || 0), remaining);
+      o.paidAmount = num(o.paidAmount || 0) - undo;
+      if (o.paid && o.paidAmount < num(o.amountSum) - 0.5) o.paid = false;
+      remaining -= undo;
+    }
+    const paidStock = (d.stockIns || [])
+      .filter((s) => sameName(s.supplier, supplierName) && num(s.paidSum) > 0.5)
+      .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    for (const s of paidStock) {
+      if (remaining <= 0.5) break;
+      const undo = Math.min(num(s.paidSum), remaining);
+      s.paidSum = num(s.paidSum) - undo;
+      remaining -= undo;
+    }
+  }
+}
+
 
 function partnerBalances(data) {
   return data.partners.map((p) => {
@@ -6579,7 +6649,22 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
               { k: "note", h: "Izoh", r: (r) => <span style={{ color: T.muted, fontSize: 12 }}>{r.note || "—"}</span> },
               ...(!readOnly ? [
                 { k: "edit", h: "", r: (r) => <button onClick={() => setEditEntry(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
-                { k: "del", h: "", r: (r) => <button onClick={() => patch((d) => { d.cashflow = d.cashflow.filter((x) => x.id !== r.id); return d; })} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
+                { k: "del", h: "", r: (r) => (
+                  <button
+                    onClick={async () => {
+                      const msg = r.debtSettleKind
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${r.debtSettleId || ""}") ham shu summaga qaytariladi.`
+                        : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
+                      if (!(await askConfirm(msg))) return;
+                      patch((d) => {
+                        if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, r.debtSettleId, num(r.amountSum));
+                        d.cashflow = d.cashflow.filter((x) => x.id !== r.id);
+                        return d;
+                      });
+                    }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}
+                  ><Trash2 size={13} /></button>
+                ) },
               ] : []),
             ]}
             rows={cfSearchNorm ? cfFiltered : cf}
