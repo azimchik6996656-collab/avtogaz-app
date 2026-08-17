@@ -22,7 +22,7 @@ import {
 const STORAGE_KEY = "avtogaz-v2";
 /* Yuklanish tekshiruvi uchun — sarlavhada ko'rinadi.
    Saytda shu raqam ko'rinsa, demak eng yangi kod ishlayapti. */
-const APP_VERSION = "v57";
+const APP_VERSION = "v58";
 const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad" };
 
 const UNITS = ["dona", "kg", "litr", "metr", "komplekt"];
@@ -638,10 +638,16 @@ const LOGIN_T = {
 
 // Kirishdan keyingi butun ilova uchun — yorug' (light) fon, logotipdagi
 // ranglarga (oq/ko'k/qizil/olov) mos.
+//
+// v58 DIZAYN TUZATISHI: ranglar yorug' mavzuga o'tgan bo'lsa-da, soyalar hamon
+// qorong'i mavzudan qolgan edi — rgba(0,0,0,.3 … .5). Oq/krem fon ustida qora
+// soya "iflos" kulrang dog' bo'lib ko'rinadi va butun interfeysni arzonlashtiradi.
+// Endi soyalar iliq siyoh rangida va ko'p qatlamli — aynan shu narsa premium his
+// beradi. Chegaralar bir pog'ona ochroq, matn esa bir oz to'yingroq.
 const T = {
-  bg: "#F4F3EF", s1: "#FFFFFF", s2: "#FBFAF7", s3: "#F2F0EA", s4: "#E9E6DD",
-  border: "#E1DDD2", border2: "#CFC9BA",
-  text: "#211D16", muted: "#8B8570", muted2: "#4A4536",
+  bg: "#F4F2ED", s1: "#FFFFFF", s2: "#FBFAF7", s3: "#F3F1EB", s4: "#E9E6DD",
+  border: "#E6E2D7", border2: "#D3CCBC",
+  text: "#1C1913", muted: "#8B8570", muted2: "#4A4536",
   flame: "#D9591A", flameD: "#D9591A1F",
   gold: "#A6741C", goldD: "#A6741C1F",
   teal: "#0E8C7E", tealD: "#0E8C7E1F",
@@ -649,6 +655,14 @@ const T = {
   blue: "#2159A0", blueD: "#2159A01F",
   purple: "#6D3FD1", purpleD: "#6D3FD11F",
   ink: "#0F172A", line: "#1E293B",
+
+  // ── BALANDLIK (elevation) tizimi: iliq siyoh, ko'p qatlamli, past shaffoflik ──
+  sh1: "0 1px 2px rgba(62,50,30,.05), 0 1px 3px rgba(62,50,30,.04)",
+  sh2: "0 2px 4px rgba(62,50,30,.04), 0 8px 20px rgba(62,50,30,.06)",
+  sh3: "0 12px 32px rgba(62,50,30,.10), 0 3px 8px rgba(62,50,30,.05)",
+  shPop: "0 16px 40px rgba(40,32,18,.14), 0 4px 12px rgba(40,32,18,.07)",
+  shModal: "0 40px 90px rgba(32,25,14,.24), 0 10px 28px rgba(32,25,14,.10)",
+  shHead: "0 1px 0 rgba(62,50,30,.07), 0 6px 20px rgba(62,50,30,.045)",
 };
 
 const SERVICE_COLORS = {
@@ -666,31 +680,69 @@ const SERVICE_COLORS = {
 function GlobalStyles() {
   const css = `
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-      body{background:${T.bg};color:${T.text};font-family:'Barlow',sans-serif;font-size:14px;line-height:1.5}
+      html{-webkit-text-size-adjust:100%}
+      body{
+        background:${T.bg};
+        /* Juda nozik iliq yorug'lik — tekis krem fonni "qog'oz" kabi jonlantiradi */
+        background-image:
+          radial-gradient(1200px 620px at 12% -8%, rgba(217,89,26,.045), transparent 62%),
+          radial-gradient(1000px 560px at 92% 4%, rgba(33,89,160,.035), transparent 58%);
+        background-attachment:fixed;
+        color:${T.text};font-family:'Barlow',sans-serif;font-size:14px;line-height:1.5;
+        -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+        text-rendering:optimizeLegibility;
+      }
       .bc{font-family:'Barlow Condensed',sans-serif}
-      .mo{font-family:'JetBrains Mono',monospace}
+      /* Raqamlar ustunlarda "sakramasligi" uchun — jadval va summalar tekis turadi */
+      .mo{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1}
       button,input,select,textarea{font-family:'Barlow',sans-serif;font-size:14px}
-      input:focus,select:focus,textarea:focus{outline:none;border-color:${T.flame}!important;box-shadow:0 0 0 2px ${T.flame}28}
-      ::-webkit-scrollbar{width:5px;height:5px}
-      ::-webkit-scrollbar-track{background:${T.bg}}
-      ::-webkit-scrollbar-thumb{background:${T.border2};border-radius:3px}
+      button{-webkit-tap-highlight-color:transparent}
+      input,select,textarea{transition:border-color .16s ease, box-shadow .16s ease, background .16s ease}
+      input:hover:not(:focus),select:hover:not(:focus),textarea:hover:not(:focus){border-color:${T.border2}}
+      input:focus,select:focus,textarea:focus{outline:none;border-color:${T.flame}!important;box-shadow:0 0 0 3px ${T.flame}22;background:${T.s1}}
+      input::placeholder,textarea::placeholder{color:${T.muted};opacity:.85}
+      /* Klaviatura bilan yurganda ko'rinadigan aniq halqa — sichqoncha bilan chiqmaydi */
+      :focus-visible{outline:2px solid ${T.flame}80;outline-offset:2px;border-radius:6px}
+      ::selection{background:${T.flame}2E;color:${T.text}}
+      ::-webkit-scrollbar{width:9px;height:9px}
+      ::-webkit-scrollbar-track{background:transparent}
+      ::-webkit-scrollbar-thumb{background:${T.border2};border-radius:99px;border:2px solid transparent;background-clip:content-box}
+      ::-webkit-scrollbar-thumb:hover{background:${T.muted};background-clip:content-box}
+      *{scrollbar-width:thin;scrollbar-color:${T.border2} transparent}
       .rh:hover{background:${T.flameD}!important}
-      .stat-card{transition:box-shadow .15s ease, transform .15s ease, border-color .15s ease}
-      .stat-card:hover{box-shadow:0 8px 24px rgba(0,0,0,.35), 0 0 0 1px ${T.flame}30;transform:translateY(-2px);border-color:${T.flame}50!important}
-      .ch:hover{border-color:${T.flame}!important;transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.35)}
-      .card-shadow{box-shadow:0 1px 2px rgba(0,0,0,.3), 0 1px 1px rgba(0,0,0,.2)}
+      .stat-card{transition:box-shadow .2s cubic-bezier(.4,0,.2,1), transform .2s cubic-bezier(.4,0,.2,1), border-color .2s ease}
+      .stat-card:hover{box-shadow:${T.sh3};transform:translateY(-2px);border-color:${T.flame}45!important}
+      .ch{transition:box-shadow .2s cubic-bezier(.4,0,.2,1), transform .2s cubic-bezier(.4,0,.2,1), border-color .2s ease}
+      .ch:hover{border-color:${T.flame}80!important;transform:translateY(-2px);box-shadow:${T.sh3}}
+      .card-shadow{box-shadow:${T.sh1}}
+      .card-shadow:hover{box-shadow:${T.sh2}}
       @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
       @keyframes spin{to{transform:rotate(360deg)}}
       @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
-      .fi{animation:fadeUp .22s ease both}
-      .tab-btn{transition:background .14s ease, color .14s ease, transform .14s ease}
-      .tab-btn:hover{transform:translateY(-2px)}
+      .fi{animation:fadeUp .26s cubic-bezier(.22,1,.36,1) both}
+      .tab-btn{transition:background .16s ease, color .16s ease, box-shadow .16s ease}
       .tab-btn:not(.active):hover{background:${T.s3}!important; color:${T.text}!important}
+      .tab-btn.active{box-shadow:inset 0 0 0 1px ${T.flame}2E}
       .spin{animation:spin 1s linear infinite}
       .pulse{animation:pulse 1.5s ease infinite}
       select{appearance:none}
       @media(max-width:640px){.hide-sm{display:none!important}}
+      /* Tab lentasining scroll chizig'i ko'rinmasin — chetdagi "so'nish" yetarli */
+      .tabs-scroll::-webkit-scrollbar{display:none}
+      /* Tugmalar: bosilganda yengil "cho'kish" — teginish sezilarli bo'ladi */
+      .btn{transition:filter .15s ease, box-shadow .15s ease, transform .08s ease, background .15s ease}
+      .btn:not(:disabled):hover{filter:brightness(1.05)}
+      .btn:not(:disabled):active{transform:translateY(1px);filter:brightness(.96)}
+      .menu-item{transition:background .14s ease}
       .menu-item:hover{background:${T.s3}!important}
+      /* Harakatni kamaytirish so'ralgan qurilmalarda animatsiyalar o'chadi */
+      @media(prefers-reduced-motion:reduce){
+        *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+      }
+      @media print{
+        body{background:#fff!important;background-image:none!important}
+        .card-shadow,.stat-card{box-shadow:none!important}
+      }
     `;
   return <style dangerouslySetInnerHTML={{ __html: css }} />;
 }
@@ -699,9 +751,10 @@ function GlobalStyles() {
    UI PRIMITIVES
 ═══════════════════════════════════════════════════ */
 const iSt = {
-  width: "100%", padding: "9px 12px", borderRadius: 8,
-  border: `1px solid ${T.border2}`, background: T.s3,
+  width: "100%", padding: "9px 12px", borderRadius: 9,
+  border: `1px solid ${T.border}`, background: T.s2,
   color: T.text, fontSize: 13,
+  boxShadow: "inset 0 1px 2px rgba(62,50,30,.04)",
 };
 
 function F({ label, children, col }) {
@@ -767,7 +820,7 @@ function SearchSelect({ value, onChange, options, placeholder, emptyText }) {
         <div className="fi" style={{
           position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50,
           background: T.s1, border: `1px solid ${T.border2}`, borderRadius: 9,
-          boxShadow: "0 10px 28px rgba(0,0,0,.4)", maxHeight: 240, overflowY: "auto",
+          boxShadow: T.shPop, maxHeight: 240, overflowY: "auto",
         }}>
           {filtered.length === 0 ? (
             <div style={{ padding: "12px 14px", fontSize: 12.5, color: T.muted }}>{emptyText || "Topilmadi"}</div>
@@ -805,19 +858,47 @@ function CurrencyToggle({ value, onChange }) {
   );
 }
 
+/* Ochiq oynalar "stek"i — bir nechta oyna ustma-ust ochilsa, Esc faqat eng
+   yuqoridagini yopadi (aks holda hammasi birdan yopilib ketardi). */
+const _modalStack = [];
+
 function Modal({ title, onClose, children, wide, xwide }) {
+  // QULAYLIK (v58): Esc bilan yopish + oyna ochiq turganda orqa fon aylanmasin.
+  // Ilgari oynani faqat "X" yoki fonni bosib yopish mumkin edi, va oyna ichida
+  // pastga tushganda orqadagi sahifa ham birga surilib ketardi.
+  useEffect(() => {
+    const self = {};
+    _modalStack.push(self);
+    function onKey(e) {
+      if (e.key !== "Escape") return;
+      if (_modalStack[_modalStack.length - 1] !== self) return; // eng yuqoridagi emas
+      onClose?.();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      const i = _modalStack.indexOf(self);
+      if (i > -1) _modalStack.splice(i, 1);
+      if (_modalStack.length === 0) document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
   return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 200, background: "rgba(28,39,51,.45)",
+    <div onClick={onClose} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "rgba(38,31,20,.42)",
+      backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: "18px 14px",
     }}>
       <div onClick={(e) => e.stopPropagation()} className="fi" style={{
         width: "100%", maxWidth: xwide ? 900 : wide ? 680 : 480,
         maxHeight: "calc(100vh - 36px)",
-        background: T.s1, border: `1px solid ${T.border2}`,
-        borderRadius: 14, overflow: "hidden",
-        boxShadow: "0 20px 60px rgba(0,0,0,.5)",
+        background: T.s1, border: `1px solid ${T.border}`,
+        borderRadius: 16, overflow: "hidden",
+        boxShadow: T.shModal,
         display: "flex", flexDirection: "column",
       }}>
         {/* SARLAVHA — doim ko'rinib turadi */}
@@ -826,10 +907,11 @@ function Modal({ title, onClose, children, wide, xwide }) {
           padding: "14px 22px", borderBottom: `1px solid ${T.border}`,
           background: T.s2, flexShrink: 0,
         }}>
-          <span className="bc" style={{ fontSize: 16, fontWeight: 700 }}>{title}</span>
-          <button onClick={onClose} style={{
-            background: "none", border: "none", cursor: "pointer",
-            color: T.muted, padding: 4, display: "flex",
+          <span className="bc" style={{ fontSize: 16, fontWeight: 700, letterSpacing: ".005em" }}>{title}</span>
+          <button onClick={onClose} aria-label="Yopish" className="menu-item" style={{
+            background: "transparent", border: "none", cursor: "pointer",
+            color: T.muted, width: 30, height: 30, borderRadius: 8,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}><X size={17} /></button>
         </div>
         {/* MAZMUN — faqat shu qism aylanadi (bitta scroll) */}
@@ -841,11 +923,18 @@ function Modal({ title, onClose, children, wide, xwide }) {
 
 function SaveBtn({ onClick, disabled, children = "Saqlash", color }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{
-      width: "100%", marginTop: 18, padding: "12px", borderRadius: 9, border: "none",
-      background: disabled ? T.s3 : `linear-gradient(135deg,${color || T.flame},${color ? color + "99" : "#D84315"})`,
+    <button onClick={onClick} disabled={disabled} type="button" className="btn" style={{
+      width: "100%", marginTop: 18, padding: "12px", borderRadius: 10, border: "none",
+      background: disabled
+        ? T.s3
+        : color
+          ? `linear-gradient(180deg,${color}F2,${color} 55%,${color}CC)`
+          : `linear-gradient(180deg,#E4682A,${T.flame} 55%,#C74E12)`,
       color: disabled ? T.muted : "#fff", fontWeight: 700, fontSize: 13.5,
       cursor: disabled ? "not-allowed" : "pointer",
+      boxShadow: disabled
+        ? "none"
+        : `inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px rgba(62,50,30,.10), 0 6px 18px ${(color || T.flame)}38`,
       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
     }}>{children}</button>
   );
@@ -875,22 +964,29 @@ function ConfirmHost() {
   );
 }
 
-function Btn({ onClick, children, variant = "primary", size = "md", style: s, disabled }) {
+function Btn({ onClick, children, variant = "primary", size = "md", style: s, disabled, title, type }) {
   const sizes = { sm: "6px 11px", md: "9px 16px", lg: "12px 22px" };
   const variants = {
-    primary: { background: `linear-gradient(135deg,${T.flame},#D84315)`, color: "#fff", border: "none" },
-    ghost: { background: T.s2, color: T.muted2, border: `1px solid ${T.border2}` },
+    // Asosiy tugma: yuqoridan nozik yorug'lik (inset) + o'z rangidagi yumshoq soya —
+    // tekis to'ldirilgan tugmadan ko'ra "ko'tarilgan", qimmatroq ko'rinadi.
+    primary: {
+      background: `linear-gradient(180deg,#E4682A,${T.flame} 55%,#C74E12)`,
+      color: "#fff", border: "none",
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,.22), 0 1px 2px rgba(62,50,30,.10), 0 4px 12px ${T.flame}33`,
+    },
+    ghost: { background: T.s1, color: T.muted2, border: `1px solid ${T.border2}`, boxShadow: T.sh1 },
     teal: { background: T.tealD, color: T.teal, border: `1px solid ${T.teal}40` },
     red: { background: T.redD, color: T.red, border: `1px solid ${T.red}40` },
     gold: { background: T.goldD, color: T.gold, border: `1px solid ${T.gold}40` },
     purple: { background: T.purpleD, color: T.purple, border: `1px solid ${T.purple}40` },
   };
   return (
-    <button onClick={onClick} disabled={disabled} style={{
+    <button onClick={onClick} disabled={disabled} title={title} type={type || "button"} className="btn" style={{
       display: "inline-flex", alignItems: "center", gap: 6,
-      padding: sizes[size], borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer",
+      padding: sizes[size], borderRadius: 9, cursor: disabled ? "not-allowed" : "pointer",
       fontSize: size === "sm" ? 11.5 : 13, fontWeight: 600,
-      opacity: disabled ? .55 : 1,
+      lineHeight: 1.35, whiteSpace: "nowrap",
+      opacity: disabled ? .5 : 1,
       ...variants[variant], ...s,
     }}>{children}</button>
   );
@@ -1636,7 +1732,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
         <div style={{
           position: "absolute", right: 0, top: "calc(100% + 8px)",
           width: 220, background: T.s1, border: `1px solid ${T.border2}`,
-          borderRadius: 11, boxShadow: "0 12px 32px rgba(0,0,0,.45)",
+          borderRadius: 12, boxShadow: T.shPop,
           overflow: "hidden", zIndex: 300,
         }} className="fi">
           {(role === "azim") && (
@@ -1818,9 +1914,12 @@ function Tbl({ cols, rows, empty, pageSize = 25, dense = false, maxH = 620 }) {
                 <th key={c.k} style={{
                   padding: `10px 14px`, textAlign: colAlign(c), color: T.muted,
                   fontWeight: 700, fontSize: 9.5, textTransform: "uppercase",
-                  letterSpacing: ".07em", whiteSpace: "nowrap",
+                  letterSpacing: ".08em", whiteSpace: "nowrap",
+                  // Aylantirilganda ostidagi qatorlar "ko'rinib ketmasligi" uchun to'liq
+                  // shaffof bo'lmagan fon + nozik soya (avval faqat chegara bor edi).
                   background: T.s2, position: "sticky", top: 0, zIndex: 2,
                   borderBottom: `1px solid ${T.border2}`,
+                  boxShadow: "0 1px 0 rgba(62,50,30,.04), 0 4px 8px -6px rgba(62,50,30,.18)",
                 }}>{c.h}</th>
               ))}
             </tr>
@@ -1832,7 +1931,9 @@ function Tbl({ cols, rows, empty, pageSize = 25, dense = false, maxH = 620 }) {
                   <td key={c.k} style={{
                     padding: `${padY}px 14px`, color: T.text, whiteSpace: "nowrap",
                     textAlign: colAlign(c),
-                    borderBottom: `1px solid ${T.border}40`,
+                    borderBottom: `1px solid ${T.border}80`,
+                    // Raqamli ustunlarda raqamlar bir xil kenglikda — summalar ustunda tekis turadi
+                    ...(colAlign(c) === "right" ? { fontVariantNumeric: "tabular-nums" } : {}),
                   }}>
                     {c.r ? c.r(row) : row[c.k]}
                   </td>
@@ -2062,8 +2163,14 @@ function ScrollableTabs({ tabs, tab, setTab }) {
   }, [tabs.length]);
 
   return (
-    <div style={{ position: "relative", background: T.s1, borderBottom: `1px solid ${T.border}` }}>
-      <div ref={scrollRef} onScroll={updateFade} style={{ display: "flex", padding: "8px 20px", overflowX: "auto", gap: 4 }}>
+    <div style={{
+      position: "sticky", top: 54, zIndex: 90,
+      background: "rgba(255,255,255,.82)",
+      backdropFilter: "blur(18px) saturate(160%)",
+      WebkitBackdropFilter: "blur(18px) saturate(160%)",
+      borderBottom: `1px solid ${T.border}`,
+    }}>
+      <div ref={scrollRef} onScroll={updateFade} className="tabs-scroll" style={{ display: "flex", padding: "8px 20px", overflowX: "auto", gap: 4, scrollbarWidth: "none" }}>
         {tabs.map(({ id, label, Icon }) => {
           const a = tab === id;
           return (
@@ -2086,12 +2193,12 @@ function ScrollableTabs({ tabs, tab, setTab }) {
         })}
       </div>
       {canLeft && <div style={{
-        position: "absolute", left: 0, top: 0, bottom: 0, width: 28,
-        background: `linear-gradient(90deg, ${T.s1}, transparent)`, pointerEvents: "none",
+        position: "absolute", left: 0, top: 0, bottom: 0, width: 36,
+        background: "linear-gradient(90deg, rgba(255,255,255,.95), rgba(255,255,255,0))", pointerEvents: "none",
       }} />}
       {canRight && <div style={{
-        position: "absolute", right: 0, top: 0, bottom: 0, width: 28,
-        background: `linear-gradient(270deg, ${T.s1}, transparent)`, pointerEvents: "none",
+        position: "absolute", right: 0, top: 0, bottom: 0, width: 36,
+        background: "linear-gradient(270deg, rgba(255,255,255,.95), rgba(255,255,255,0))", pointerEvents: "none",
       }} />}
     </div>
   );
@@ -2100,11 +2207,19 @@ function ScrollableTabs({ tabs, tab, setTab }) {
 function Stat({ label, value, sub, color, Icon, spark }) {
   return (
     <div className="card-shadow stat-card" style={{
-      background: T.s1, border: `1px solid ${T.border}`, borderRadius: 12,
+      // Yuqoridan pastga juda nozik o'tish — tekis oq emas, "qatlamli" ko'rinadi
+      background: `linear-gradient(180deg,#FFFFFF,${T.s2})`,
+      border: `1px solid ${T.border}`, borderRadius: 14,
       padding: "16px 18px", position: "relative", overflow: "hidden",
     }}>
       <div style={{
         position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: color,
+      }} />
+      {/* Rangli chiziqdan tarqaladigan zaif shu'la — arzon "rangli chiziq" hissini yo'qotadi */}
+      <div style={{
+        position: "absolute", left: 0, top: 0, bottom: 0, width: 90,
+        background: `linear-gradient(90deg, ${color}0F, transparent)`,
+        pointerEvents: "none",
       }} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <span style={{
@@ -2132,19 +2247,20 @@ function Card({ title, children, action, pad = true, accent }) {
   return (
     <div className="card-shadow" style={{
       background: T.s1, border: `1px solid ${T.border}`,
-      borderRadius: 12, overflow: "hidden",
+      borderRadius: 14, overflow: "hidden",
     }}>
       {title && (
         <div style={{
           padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
           display: "flex", justifyContent: "space-between", alignItems: "center",
-          gap: 12, background: T.s2, minHeight: 46,
+          gap: 12, minHeight: 46,
+          background: `linear-gradient(180deg,${T.s2},${T.s3})`,
         }}>
           <span className="bc" style={{
-            fontSize: 14, fontWeight: 700, letterSpacing: ".01em",
+            fontSize: 14.5, fontWeight: 700, letterSpacing: ".01em",
             display: "flex", alignItems: "center", gap: 8,
           }}>
-            {accent && <span style={{ width: 3, height: 15, borderRadius: 2, background: accent, display: "inline-block" }} />}
+            {accent && <span style={{ width: 3, height: 15, borderRadius: 99, background: accent, display: "inline-block" }} />}
             {title}
           </span>
           {action}
@@ -3127,17 +3243,21 @@ export default function App() {
 
       {/* HEADER */}
       <header style={{
-        background: T.s1, borderBottom: `1px solid ${T.border}`,
+        background: "rgba(255,255,255,.82)",
+        backdropFilter: "blur(18px) saturate(160%)",
+        WebkitBackdropFilter: "blur(18px) saturate(160%)",
+        borderBottom: `1px solid ${T.border}`,
         padding: "0 20px", height: 54, display: "flex",
         alignItems: "center", justifyContent: "space-between",
         position: "sticky", top: 0, zIndex: 100,
-        boxShadow: "0 1px 2px rgba(0,0,0,.3)",
+        boxShadow: T.shHead,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <div style={{
             background: "#FBFAF8", borderRadius: 8, padding: "5px 9px",
             display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 2px 8px rgba(0,0,0,.3)", flexShrink: 0,
+            border: `1px solid ${T.border}`,
+            boxShadow: T.sh1, flexShrink: 0,
           }}><img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 15, width: "auto" }} /></div>
           <div>
             <div className="bc" style={{
@@ -3192,13 +3312,17 @@ export default function App() {
 
           <button
             onClick={() => saveToServer(data)}
+            type="button"
+            className="btn"
+            title="Ma'lumotlarni serverga saqlash"
             style={{
               display: "flex", alignItems: "center", gap: 6,
-              padding: "7px 13px", borderRadius: 8, border: "none", cursor: "pointer",
+              padding: "7px 13px", borderRadius: 9, border: "none", cursor: "pointer",
               background: saveState === "error"
-                ? `linear-gradient(135deg,${T.red},#B71C1C)`
-                : `linear-gradient(135deg,${T.teal},#00897B)`,
+                ? `linear-gradient(180deg,#E4292B,${T.red} 55%,#B71C1C)`
+                : `linear-gradient(180deg,#12A08F,${T.teal} 55%,#0A7466)`,
               color: "#fff", fontSize: 12, fontWeight: 700,
+              boxShadow: `inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px rgba(62,50,30,.10), 0 4px 12px ${saveState === "error" ? T.red : T.teal}33`,
             }}
           >
             {saveState === "saving"
@@ -3246,7 +3370,7 @@ export default function App() {
       <ScrollableTabs tabs={tabs} tab={tab} setTab={setTab} />
 
       {/* CONTENT */}
-      <div key={tab} style={{ padding: "22px 20px", maxWidth: 1400, margin: "0 auto" }} className="fi">
+      <div key={tab} style={{ padding: "24px 20px 56px", maxWidth: 1400, margin: "0 auto" }} className="fi">
         {tab === "dashboard"  && <DashboardTab  data={data} patch={patch} rate={rate} setTab={setTab} />}
         {tab === "callcenter" && <CallCenterTab data={data} patch={patch} />}
         {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} saveState={saveState} />}
@@ -3266,10 +3390,13 @@ export default function App() {
       <ConfirmHost />
       {saveState === "conflict" && (
         <div style={{
-          position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 180,
-          background: T.s1, border: `1px solid ${T.gold}60`, borderRadius: 10,
-          padding: "10px 14px", display: "flex", gap: 10, alignItems: "center",
-        }}>
+          // Tab lentasi endi "yopishqoq" (sticky) — xabar uning ostidan chiqadi
+          position: "fixed", top: 116, left: "50%", transform: "translateX(-50%)", zIndex: 180,
+          background: T.s1, border: `1px solid ${T.gold}60`, borderRadius: 12,
+          boxShadow: T.shPop,
+          padding: "11px 15px", display: "flex", gap: 10, alignItems: "center",
+          maxWidth: "calc(100vw - 32px)",
+        }} className="fi">
           <AlertTriangle size={14} color={T.gold} />
           <span style={{ fontSize: 12.5 }}>Boshqa qurilma ma'lumotni yangilagan. Yangilash uchun sahifani qayta yuklang.</span>
           <Btn size="sm" variant="ghost" onClick={() => window.location.reload()}>Yangilash</Btn>
