@@ -875,7 +875,7 @@ function ConfirmHost() {
   );
 }
 
-function Btn({ onClick, children, variant = "primary", size = "md", style: s }) {
+function Btn({ onClick, children, variant = "primary", size = "md", style: s, disabled }) {
   const sizes = { sm: "6px 11px", md: "9px 16px", lg: "12px 22px" };
   const variants = {
     primary: { background: `linear-gradient(135deg,${T.flame},#D84315)`, color: "#fff", border: "none" },
@@ -886,10 +886,11 @@ function Btn({ onClick, children, variant = "primary", size = "md", style: s }) 
     purple: { background: T.purpleD, color: T.purple, border: `1px solid ${T.purple}40` },
   };
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} disabled={disabled} style={{
       display: "inline-flex", alignItems: "center", gap: 6,
-      padding: sizes[size], borderRadius: 8, cursor: "pointer",
+      padding: sizes[size], borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer",
       fontSize: size === "sm" ? 11.5 : 13, fontWeight: 600,
+      opacity: disabled ? .55 : 1,
       ...variants[variant], ...s,
     }}>{children}</button>
   );
@@ -1064,6 +1065,12 @@ function StaffPinModal({ onClose }) {
   const [editing, setEditing] = useState(null); // email
   const [pinInput, setPinInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newRole, setNewRole] = useState("kassir");
+  const [addError, setAddError] = useState("");
+  const [adding, setAdding] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -1105,13 +1112,85 @@ function StaffPinModal({ onClose }) {
     }
   }
 
+  async function addStaff() {
+    setAddError("");
+    const email = newEmail.trim().toLowerCase();
+    const fullName = newName.trim();
+    if (!email || !email.includes("@")) { setAddError("To'g'ri Gmail/email kiriting."); return; }
+    if (!fullName) { setAddError("Ismini kiriting."); return; }
+    setAdding(true);
+    try {
+      const authHeader = await authClient.getAuthHeader();
+      const res = await fetch("/api/staff/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
+        body: JSON.stringify({ email, fullName, role: newRole }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || "Qo'shilmadi");
+      setNewEmail(""); setNewName(""); setNewRole("kassir"); setShowAdd(false);
+      await load();
+    } catch (e) {
+      setAddError(String(e?.message || e));
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function removeStaff(email) {
+    if (!(await askConfirm(`"${email}" tizimdan olib tashlansinmi? U endi Google orqali kira olmaydi.`))) return;
+    setSaving(true);
+    setError("");
+    try {
+      const authHeader = await authClient.getAuthHeader();
+      const res = await fetch("/api/staff/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || "O'chirilmadi");
+      await load();
+    } catch (e) {
+      setError(String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <Modal title="Xodimlar — 2-bosqich PIN" onClose={onClose} wide>
+    <Modal title="Xodimlar — Google orqali kirish" onClose={onClose} wide>
       <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Kassir va sklad endi shu ro'yxatdagi Gmail orqali kiradi (4 xonali kod endi ishlamaydi).
         Google orqali kirgandan keyin, agar xodimga shaxsiy PIN o'rnatilgan bo'lsa, kirish uchun
-        yana shu PIN ham so'raladi. Bu — kompyuterda Google hisobingiz ochiq turgan payt boshqa
+        yana shu PIN ham so'raladi — bu kompyuterda Google hisobingiz ochiq turgan payt boshqa
         birov ilovaga kirib qolishining oldini oladi.
       </p>
+
+      <div style={{ marginBottom: 16 }}>
+        <Btn size="sm" variant={showAdd ? "ghost" : "gold"} onClick={() => setShowAdd((s) => !s)}>
+          <Plus size={13} /> {showAdd ? "Bekor qilish" : "Yangi xodim qo'shish"}
+        </Btn>
+        {showAdd && (
+          <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginTop: 10 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <input style={{ ...iSt, flex: 2, minWidth: 180 }} placeholder="Gmail manzili"
+                value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+              <input style={{ ...iSt, flex: 1, minWidth: 140 }} placeholder="Ism-familiyasi"
+                value={newName} onChange={(e) => setNewName(e.target.value)} />
+              <Sel value={newRole} onChange={setNewRole} options={[
+                { value: "kassir", label: "Kassir" },
+                { value: "sklad", label: "Sklad" },
+              ]} />
+            </div>
+            {addError && <p style={{ fontSize: 12, color: T.red, marginBottom: 8 }}>{addError}</p>}
+            <Btn size="sm" variant="teal" disabled={adding} onClick={addStaff}>
+              {adding ? "Qo'shilmoqda..." : "Qo'shish"}
+            </Btn>
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div style={{ textAlign: "center", padding: 30 }}><Loader2 className="spin" size={22} color={T.flame} /></div>
       ) : error ? (
@@ -1145,7 +1224,10 @@ function StaffPinModal({ onClose }) {
                     {s.hasPin ? "O'zgartirish" : "O'rnatish"}
                   </Btn>
                   {s.hasPin && (
-                    <Btn size="sm" variant="red" disabled={saving} onClick={() => savePin(s.email, "")}>O'chirish</Btn>
+                    <Btn size="sm" variant="red" disabled={saving} onClick={() => savePin(s.email, "")}>PIN o'chirish</Btn>
+                  )}
+                  {s.role !== "azim" && (
+                    <Btn size="sm" variant="red" disabled={saving} onClick={() => removeStaff(s.email)}>Xodimni o'chirish</Btn>
                   )}
                 </div>
               )}
@@ -1159,30 +1241,25 @@ function StaffPinModal({ onClose }) {
 
 function PinChangeModal({ pins, onClose, onSave }) {
   const [rahbar, setRahbar] = useState(pins.rahbar || "");
-  const [kassir, setKassir] = useState(pins.kassir || "");
-  const [sklad, setSklad] = useState(pins.sklad || "");
   const [error, setError] = useState("");
 
   function isValid4Digit(v) { return /^\d{4}$/.test(v); }
 
   function handleSave() {
-    if (!isValid4Digit(rahbar) || !isValid4Digit(kassir) || !isValid4Digit(sklad)) {
-      setError("Har bir PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+    if (!isValid4Digit(rahbar)) {
+      setError("PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
       return;
     }
-    const vals = [rahbar, kassir, sklad];
-    if (new Set(vals).size !== 3) {
-      setError("PIN kodlar bir-biridan farq qilishi kerak.");
-      return;
-    }
-    onSave({ rahbar, kassir, sklad });
+    // Kassir/Sklad PIN'lari endi ishlatilmaydi (ular Google orqali kiradi) — shu ikkalasini
+    // eski qiymatida o'zgarmasdan qoldiramiz, faqat Rahbar PIN'ni yangilaymiz.
+    onSave({ ...pins, rahbar });
     onClose();
   }
 
   return (
     <Modal title="PIN kodlarni o'zgartirish" onClose={onClose}>
       <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16 }}>
-        Har biri aynan 4 ta raqam bo'lishi kerak. O'zgarish darhol kuchga kiradi.
+        4 ta raqam bo'lishi kerak. O'zgarish darhol kuchga kiradi.
         Usta uchun umumiy PIN yo'q — har bir ustaga "Usta kodlari" bo'limidan shaxsiy kod beriladi.
       </p>
       <div style={{ display: "grid", gap: 14 }}>
@@ -1193,18 +1270,13 @@ function PinChangeModal({ pins, onClose, onSave }) {
             autoFocus onFocus={(e) => e.target.select()}
           />
         </F>
-        <F label="Kassir PIN">
-          <input
-            type="text" inputMode="numeric" maxLength={4} style={iSt}
-            value={kassir} onChange={(e) => setKassir(e.target.value.replace(/\D/g, "").slice(0, 4))}
-          />
-        </F>
-        <F label="Sklad PIN">
-          <input
-            type="text" inputMode="numeric" maxLength={4} style={iSt}
-            value={sklad} onChange={(e) => setSklad(e.target.value.replace(/\D/g, "").slice(0, 4))}
-          />
-        </F>
+      </div>
+      <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginTop: 14 }}>
+        <p style={{ fontSize: 12, color: T.muted2, lineHeight: 1.6 }}>
+          <b>Kassir</b> va <b>Sklad</b> uchun endi 4 xonali kod yo'q — ular faqat <b>Google hisobi</b>
+          orqali kiradi. Yangi kassir yoki sklad xodimini qo'shish uchun "Xodimlar — 2-bosqich PIN"
+          bo'limiga murojaat qiling.
+        </p>
       </div>
       {error && <p style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{error}</p>}
       <SaveBtn color={T.purple} onClick={handleSave}>
