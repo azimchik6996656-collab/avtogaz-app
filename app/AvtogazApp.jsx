@@ -7,6 +7,7 @@ import {
 } from "../lib/security";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import {
   Package, Wallet, Plus, X, TrendingUp, TrendingDown, ChevronDown, Trash2,
@@ -885,7 +886,13 @@ function Modal({ title, onClose, children, wide, xwide }) {
     };
   }, [onClose]);
 
-  return (
+  // v58'dagi header/tab panelidagi "blur" effekti (backdrop-filter) endi shu elementlarni
+  // pastdagi position:fixed bolalari uchun yangi "containing block" qilib qo'yadi — natijada
+  // header ichidan ochilgan oyna (masalan HeaderMenu'dagi Import/Export) butun ekranni emas,
+  // balki faqat 54px'lik header qutisini asos qilib joylashib, "yarim ko'rinadigan" bo'lib
+  // qolardi. document.body'ga portal orqali chiqarish buni har doim, qayerdan chaqirilishidan
+  // qat'i nazar, oldini oladi.
+  return typeof document === "undefined" ? null : createPortal(
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{
       position: "fixed", inset: 0, zIndex: 200,
       background: "rgba(38,31,20,.42)",
@@ -919,7 +926,8 @@ function Modal({ title, onClose, children, wide, xwide }) {
             o'zi bilan birga cho'zib, sarlavhani ekrandan chiqarib yuborishi mumkin. */}
         <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
