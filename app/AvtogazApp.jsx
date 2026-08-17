@@ -914,8 +914,10 @@ function Modal({ title, onClose, children, wide, xwide }) {
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}><X size={17} /></button>
         </div>
-        {/* MAZMUN — faqat shu qism aylanadi (bitta scroll) */}
-        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>{children}</div>
+        {/* MAZMUN — faqat shu qism aylanadi (bitta scroll). minHeight:0 shart — aks holda
+            ichidagi katta elementlar (masalan qo'lda kattalashtirilgan textarea) flex konteynerni
+            o'zi bilan birga cho'zib, sarlavhani ekrandan chiqarib yuborishi mumkin. */}
+        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
     </div>
   );
@@ -1118,7 +1120,7 @@ function JSONImportModal({ onClose, onImport }) {
         value={text} onChange={(e) => { setText(e.target.value); setError(""); }}
         placeholder="JSON matnini shu yerga joylang yoki faylni yuqoridan tanlang..."
         style={{
-          width: "100%", height: 240, padding: 12, borderRadius: 8,
+          width: "100%", height: 240, maxHeight: 420, padding: 12, borderRadius: 8,
           border: `1px solid ${error ? T.red : T.border2}`, background: T.s3, color: T.text,
           fontFamily: "monospace", fontSize: 11, resize: "vertical",
         }}
