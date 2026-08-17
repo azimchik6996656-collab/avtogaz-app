@@ -1284,7 +1284,7 @@ function StaffPinModal({ onClose }) {
                 value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
               <input style={{ ...iSt, flex: 1, minWidth: 140 }} placeholder="Ism-familiyasi"
                 value={newName} onChange={(e) => setNewName(e.target.value)} />
-              <Sel value={newRole} onChange={setNewRole} options={[
+              <Sel value={newRole} onChange={(e) => setNewRole(e.target.value)} options={[
                 { value: "kassir", label: "Kassir" },
                 { value: "sklad", label: "Sklad" },
               ]} />
@@ -4424,6 +4424,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   const [newOpen, setNewOpen] = useState(false);
   const [workCard, setWorkCard] = useState(null);
   const [search, setSearch] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("hammasi"); // hammasi | kun | oy | yil
   const [editPinOpen, setEditPinOpen] = useState(null); // card pending PIN check
   const [editCard, setEditCard] = useState(null); // card being edited after PIN ok
   const [viewCard, setViewCard] = useState(null); // to'liq tafsilotni ko'rish uchun
@@ -4436,9 +4437,17 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   // Usta faqat o'ziga (o'z ismiga) tegishli kartalarni ko'radi
   const cards = isUsta ? allCards.filter((c) => sameName(c.usta, ustaName)) : allCards;
   const openCards = cards.filter((c) => cardStatus(c) === "ochiq");
+  const todayIso = todayISO();
   const closedCards = cards
     .filter((c) => cardStatus(c) !== "ochiq")
-    .filter((c) => (c.plate + c.carModel + c.phone).toLowerCase().includes(search.toLowerCase()));
+    .filter((c) => (c.plate + c.carModel + c.phone).toLowerCase().includes(search.toLowerCase()))
+    .filter((c) => {
+      if (periodFilter === "hammasi") return true;
+      if (periodFilter === "kun") return c.date === todayIso;
+      if (periodFilter === "oy") return (c.date || "").slice(0, 7) === todayIso.slice(0, 7);
+      if (periodFilter === "yil") return (c.date || "").slice(0, 4) === todayIso.slice(0, 4);
+      return true;
+    });
 
   // Barcha kartalardagi usta izohlarini yig'amiz — takroriy yozmaslik uchun tavsiya ro'yxati
   const noteSuggestions = [...new Set(
@@ -4898,11 +4907,28 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         </div>
       )}
 
-      {/* SEARCH + CLOSED */}
-      <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
-        <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
+      {/* SEARCH + DAVR FILTRI + CLOSED */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ position: "relative", maxWidth: 320, flex: "1 1 220px" }}>
+          <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
+        </div>
+        <div style={{ display: "flex", gap: 4, background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 3 }}>
+          {[
+            { k: "hammasi", label: "Hammasi" },
+            { k: "kun", label: "Kunlik" },
+            { k: "oy", label: "Oylik" },
+            { k: "yil", label: "Yillik" },
+          ].map((p) => (
+            <button key={p.k} onClick={() => setPeriodFilter(p.k)} type="button" style={{
+              padding: "7px 13px", borderRadius: 7, border: "none", cursor: "pointer",
+              fontSize: 12, fontWeight: 600,
+              background: periodFilter === p.k ? T.flame : "transparent",
+              color: periodFilter === p.k ? "#fff" : T.muted2,
+            }}>{p.label}</button>
+          ))}
+        </div>
       </div>
 
       <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
