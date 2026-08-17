@@ -2461,9 +2461,11 @@ function LoginScreen({ authError, onSuccess }) {
         .login-side{flex:none;width:460px;display:flex;align-items:center;justify-content:center;
           padding:40px 20px;position:relative;z-index:2}
         .login-mobile-info{display:none}
+        .login-mobile-logo{display:none}
         @media(max-width:960px){
           .login-hero{display:none}
           .login-side{width:100%}
+          .login-mobile-logo{display:flex;justify-content:center;margin-bottom:20px}
           .login-mobile-info{display:flex;gap:10px;margin-bottom:18px}
         }
       `}</style>
@@ -2486,10 +2488,10 @@ function LoginScreen({ authError, onSuccess }) {
             </p>
           </div>
           <div style={{
-            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 16, padding: "14px 20px",
-            boxShadow: "0 14px 32px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.5)",
+            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 13, padding: "10px 15px",
+            boxShadow: "0 10px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
           }}>
-            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 69, width: "auto" }} />
+            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 50, width: "auto" }} />
           </div>
         </div>
 
@@ -2523,6 +2525,14 @@ function LoginScreen({ authError, onSuccess }) {
 
       <div className="login-side">
         <div style={{ width: "100%", maxWidth: 380 }}>
+          <div className="login-mobile-logo">
+            <div style={{
+              display: "inline-flex", background: "#FBFAF8", borderRadius: 12, padding: "9px 14px",
+              boxShadow: "0 10px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.5)",
+            }}>
+              <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 26, width: "auto" }} />
+            </div>
+          </div>
           <div className="login-mobile-info">
             <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${LOGIN_T.border}`, borderRadius: 14, padding: "10px 14px" }}>
               <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: LOGIN_T.text }}>
