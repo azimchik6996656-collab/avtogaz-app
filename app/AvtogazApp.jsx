@@ -75,6 +75,7 @@ const emptyData = () => ({
     activeBranchId: "main",
   },
   products: [], stockIns: [], stockOuts: [], serviceUsage: [], freeSales: [], cashflow: [],
+  apprentices: [], // usta -> shogirt (necha foizi shogirtga ajratilishi) ro'yxati
   serviceCards: [], warrantyClaims: [], partners: [], partnerTx: [],
   ustaLedger: [], leads: [], leadTasks: [],
   bonusRules: [], bonusAwards: [], nasiyaDebts: [],
@@ -518,6 +519,24 @@ function useActionLock() {
       setTimeout(() => { locked.current = false; }, 1500);
     }
   }, []);
+}
+
+// Usta shogirt (yordamchi) bilan ishlasa — shogirtga belgilangan foiz (odatda 20%) shu
+// ustaning xizmat haqidan avtomatik ajratib olinadi. Ikkalasi ham "ustaLedger"ga alohida
+// yozuv sifatida tushadi — shu bilan ular bir-biridan mustaqil, o'z pulini o'zi ko'radi
+// va yopadi (Usta hisobi'dagi mavjud "Usta bo'yicha holat" jadvali orqali).
+function splitUstaLedgerAmount(apprentices, ustaName, amountSum) {
+  const rec = (apprentices || []).find((a) => sameName(a.usta, ustaName));
+  if (!rec || amountSum <= 0) return [{ usta: ustaName, amountSum }];
+  const pct = num(rec.percent) || 20;
+  const shogirtAmt = Math.round(amountSum * pct / 100);
+  const ustaAmt = amountSum - shogirtAmt;
+  return [
+    { usta: ustaName, amountSum: ustaAmt, shogirtGivenTo: rec.shogirt, shogirtGivenAmount: shogirtAmt,
+      note: `Shogirt (${rec.shogirt}) uchun ${fmtSum(shogirtAmt)} ajratildi` },
+    { usta: rec.shogirt, amountSum: shogirtAmt, shogirtSourceUsta: ustaName,
+      note: `${ustaName} — shogirt ulushi` },
+  ];
 }
 
 function ustaPendingByName(data) {
@@ -4593,10 +4612,15 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         // 20% servis foydasi sifatida kassada qoladi (profitSum'da allaqachon hisoblangan).
         const isDetailing = card.serviceType === "Detailing";
         const ustaLedgerAmount = isDetailing ? num(fin.ustaTakeHome) : num(fin.ustaFee);
-        d.ustaLedger.unshift({
-          id: uid(), date: todayISO(), usta: card.usta || "Noma'lum",
-          cardId: card.id, amountSum: ustaLedgerAmount, paid: false,
-          note: isDetailing ? `Material + usta haqining 80%i (jami pot: ${fmtSum(fin.ustaFee)})` : undefined,
+        const detailingNote = isDetailing ? `Material + usta haqining 80%i (jami pot: ${fmtSum(fin.ustaFee)})` : undefined;
+        splitUstaLedgerAmount(d.apprentices, card.usta || "Noma'lum", ustaLedgerAmount).forEach((part) => {
+          d.ustaLedger.unshift({
+            id: uid(), date: todayISO(), usta: part.usta,
+            cardId: card.id, amountSum: part.amountSum, paid: false,
+            note: [detailingNote, part.note].filter(Boolean).join(" · ") || undefined,
+            shogirtGivenTo: part.shogirtGivenTo, shogirtGivenAmount: part.shogirtGivenAmount,
+            shogirtSourceUsta: part.shogirtSourceUsta,
+          });
         });
       }
       // Kelishilgan (oylik) usta bo'lsa — fin.ustaFee kassaga chiqim yozilmaydi,
@@ -4693,9 +4717,13 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         });
       }
       if (num(updated.ustaFee) > 0 && !isContracted && !ustaAlreadyPaid) {
-        d.ustaLedger.unshift({
-          id: uid(), date: card.date || todayISO(), usta: card.usta || "Noma'lum",
-          cardId: card.id, amountSum: updated.ustaFee, paid: false,
+        splitUstaLedgerAmount(d.apprentices, card.usta || "Noma'lum", num(updated.ustaFee)).forEach((part) => {
+          d.ustaLedger.unshift({
+            id: uid(), date: card.date || todayISO(), usta: part.usta,
+            cardId: card.id, amountSum: part.amountSum, paid: false,
+            note: part.note, shogirtGivenTo: part.shogirtGivenTo,
+            shogirtGivenAmount: part.shogirtGivenAmount, shogirtSourceUsta: part.shogirtSourceUsta,
+          });
         });
       }
       if (num(updated.ustaFee) > 0 && isContracted) {
@@ -8044,6 +8072,7 @@ function DailyReport({ data, onClose }) {
 /* ─── USTA HISOB-KITOBI TAB ─── */
 function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const [addContractedOpen, setAddContractedOpen] = useState(false);
+  const [addApprenticeOpen, setAddApprenticeOpen] = useState(false);
   const isSelf = !canManage; // usta o'zi kirgan — faqat o'ziga tegishlisini ko'radi
   const pendingByName = isSelf
     ? ustaPendingByName(data).filter((u) => sameName(u.usta, ustaName))
@@ -8083,6 +8112,31 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   function removeContractedMaster(id) {
     patch((d) => { d.contractedMasters = (d.contractedMasters || []).filter((m) => m.id !== id); return d; });
   }
+
+  const apprentices = data.apprentices || [];
+  function addApprentice(usta, shogirt, percent) {
+    patch((d) => {
+      d.apprentices = d.apprentices || [];
+      // Har bir ustaga bitta shogirt — eskisi bo'lsa almashtiramiz (chalkashmasin)
+      d.apprentices = d.apprentices.filter((a) => !sameName(a.usta, usta));
+      d.apprentices.push({ id: uid(), usta, shogirt, percent: num(percent) || 20 });
+      return d;
+    });
+  }
+  function removeApprentice(id) {
+    patch((d) => { d.apprentices = (d.apprentices || []).filter((a) => a.id !== id); return d; });
+  }
+
+  // Har bir usta o'z shogirtiga jami qancha ajratganini (to'langan + kutilayotgan) ko'radi
+  const shogirtTotals = {};
+  data.ustaLedger.filter((e) => e.shogirtGivenTo).forEach((e) => {
+    const key = e.usta + "→" + e.shogirtGivenTo;
+    if (!shogirtTotals[key]) shogirtTotals[key] = { usta: e.usta, shogirt: e.shogirtGivenTo, total: 0 };
+    shogirtTotals[key].total += num(e.shogirtGivenAmount);
+  });
+  const shogirtTotalsList = Object.values(shogirtTotals)
+    .filter((s) => !isSelf || sameName(s.usta, ustaName))
+    .sort((a, b) => b.total - a.total);
 
   // shu ustalarning bu oyda servisga qo'shgan foydasi (bonus)
   const contractedBonusThisMonth = data.serviceCards
@@ -8127,6 +8181,52 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
                 ))}
               </div>
             )}
+          </Card>
+        </div>
+      )}
+
+      {canManage && (
+        <div style={{ marginBottom: 16 }}>
+          <Card title="Shogirtlar"
+            action={<Btn size="sm" onClick={() => setAddApprenticeOpen(true)}><Plus size={12} /> Qo'shish</Btn>}>
+            <p style={{ fontSize: 12, color: T.muted, marginBottom: apprentices.length ? 12 : 0 }}>
+              Usta shogirt bilan ishlasa — xizmat haqining belgilangan foizi (odatda 20%) avtomatik
+              shogirtga ajratiladi. Ikkalasi ham o'z ulushini pastdagi "Usta bo'yicha holat"dan
+              mustaqil ko'radi va yopadi.
+            </p>
+            {apprentices.length > 0 && (
+              <div style={{ display: "grid", gap: 8 }}>
+                {apprentices.map((a) => (
+                  <div key={a.id} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    background: T.s3, borderRadius: 10, padding: "9px 13px",
+                  }}>
+                    <span style={{ fontSize: 12.5 }}>
+                      <b>{a.usta}</b> <span style={{ color: T.muted }}>→</span> <b>{a.shogirt}</b>
+                      <span style={{ color: T.gold, marginLeft: 8 }}>({a.percent}%)</span>
+                    </span>
+                    <button onClick={() => removeApprentice(a.id)} style={{
+                      background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 2, display: "flex",
+                    }}><X size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {shogirtTotalsList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Card title="Shogirt ulushlari (jami ajratilgan)" pad={false}>
+            <Tbl
+              cols={[
+                { k: "usta", h: "Usta", r: (r) => <span style={{ fontWeight: 600 }}>{r.usta}</span> },
+                { k: "shogirt", h: "Shogirt", r: (r) => r.shogirt },
+                { k: "total", h: "Jami ajratilgan", r: (r) => <span style={{ color: T.gold, fontWeight: 700 }}>{fmtSum(r.total)}</span> },
+              ]}
+              rows={shogirtTotalsList}
+            />
           </Card>
         </div>
       )}
@@ -8181,7 +8281,43 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
           onClose={() => setAddContractedOpen(false)}
           onSave={(name) => { addContractedMaster(name); setAddContractedOpen(false); }} />
       )}
+      {addApprenticeOpen && (
+        <AddApprenticeModal ustaNames={ustaNameOptions(data)}
+          onClose={() => setAddApprenticeOpen(false)}
+          onSave={(usta, shogirt, percent) => { addApprentice(usta, shogirt, percent); setAddApprenticeOpen(false); }} />
+      )}
     </div>
+  );
+}
+
+function AddApprenticeModal({ ustaNames, onClose, onSave }) {
+  const [usta, setUsta] = useState("");
+  const [shogirt, setShogirt] = useState("");
+  const [percent, setPercent] = useState(20);
+  return (
+    <Modal title="Shogirt qo'shish" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
+        Bu ustaning xizmat haqidan belgilangan foizi endi avtomatik shogirtga ajratiladi
+        (usta karta yakunlaganda). Har bir ustaga bitta shogirt biriktirish mumkin.
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Usta ismi">
+          <input style={iSt} value={usta} onChange={(e) => setUsta(e.target.value)}
+            list="apprentice-usta-list" placeholder="Masalan: Umarxon" autoFocus />
+          <datalist id="apprentice-usta-list">{ustaNames.map((n) => <option key={n} value={n} />)}</datalist>
+        </F>
+        <F label="Shogirt ismi">
+          <input style={iSt} value={shogirt} onChange={(e) => setShogirt(e.target.value)} placeholder="Masalan: Sardor" />
+        </F>
+        <F label="Shogirt ulushi (%)">
+          <input type="number" style={iSt} value={percent} onChange={(e) => setPercent(e.target.value)} min={1} max={100} />
+        </F>
+      </div>
+      <SaveBtn disabled={!usta.trim() || !shogirt.trim() || !num(percent)} color={T.purple}
+        onClick={() => onSave(usta.trim(), shogirt.trim(), num(percent))}>
+        <Plus size={15} /> Qo'shish
+      </SaveBtn>
+    </Modal>
   );
 }
 
