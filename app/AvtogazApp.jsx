@@ -74,7 +74,7 @@ const emptyData = () => ({
     branches: [{ id: "main", name: "Bosh filial", openDate: "" }],
     activeBranchId: "main",
   },
-  products: [], stockIns: [], stockOuts: [], freeSales: [], cashflow: [],
+  products: [], stockIns: [], stockOuts: [], serviceUsage: [], freeSales: [], cashflow: [],
   serviceCards: [], warrantyClaims: [], partners: [], partnerTx: [],
   ustaLedger: [], leads: [], leadTasks: [],
   bonusRules: [], bonusAwards: [], nasiyaDebts: [],
@@ -5785,6 +5785,7 @@ function WarehouseTab({ data, patch, rate, role }) {
   const isReadOnly = role === "rahbar"; // Rahbar faqat kuzatadi
   const [stockOpen, setStockOpen] = useState(false);
   const [saleOpen, setSaleOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [invOpen, setInvOpen] = useState(false);
   const [invReqOpen, setInvReqOpen] = useState(false);
   const [respondReq, setRespondReq] = useState(null);
@@ -5871,6 +5872,27 @@ function WarehouseTab({ data, patch, rate, role }) {
     });
   }
 
+  // Xizmat (servis) o'zining ehtiyoji uchun skladdan mahsulot/instrument olsa (masalan
+  // jgut, umumiy foydalaniladigan asbob) — biror mijoz kartasiga bog'lanmagani uchun
+  // avval hech qayerda qayd etilmasdi, sklad qoldig'i kamayib ketib "kamomad" chiqardi.
+  // Bu yozuv sklad qoldig'ini kamaytiradi VA sababini saqlaydi — inventarizatsiyada
+  // farq chiqmasligi uchun.
+  function addServiceUsage(entry) {
+    patch((d) => {
+      const product = d.products.find((p) => p.id === entry.productId);
+      if (!product) return d;
+      const qty = Math.min(num(entry.qty), num(product.qty));
+      product.qty = Math.max(0, num(product.qty) - qty);
+      d.serviceUsage = d.serviceUsage || [];
+      d.serviceUsage.unshift({
+        id: uid(), date: todayISO(), productId: product.id, productName: product.name,
+        qty, unit: product.unit, costSum: num(product.costSum) * qty,
+        usta: (entry.usta || "").trim(), note: (entry.note || "").trim(),
+      });
+      return d;
+    });
+  }
+
   function saveEdit(prod, log) {
     patch((d) => {
       d.editLog = d.editLog || [];
@@ -5944,6 +5966,7 @@ function WarehouseTab({ data, patch, rate, role }) {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {!isReadOnly && <Btn variant="ghost" onClick={() => setSaleOpen(true)}><ShoppingCart size={14} /> Ulgurji savdo</Btn>}
+          {!isReadOnly && <Btn variant="ghost" onClick={() => setUsageOpen(true)}><Wrench size={14} /> Xizmat ehtiyoji uchun chiqarish</Btn>}
           {role === "azim" && (
             <Btn variant="gold" onClick={() => setInvReqOpen(true)}><Calendar size={14} /> Inventarizatsiya so'rovi (kassirga)</Btn>
           )}
@@ -6094,8 +6117,30 @@ function WarehouseTab({ data, patch, rate, role }) {
         </div>
       )}
 
+      {(data.serviceUsage || []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Card title={`Chiqim tarixi — Xizmat ehtiyoji (${data.serviceUsage.length})`} pad={false}>
+            <div style={{ padding: "14px 18px" }}>
+              <DateGroupedList
+                empty="Chiqim yo'q"
+                amountFn={(r) => -num(r.costSum)}
+                cols={[
+                  { k: "productName", h: "Mahsulot" },
+                  { k: "qty", h: "Miqdor", r: (r) => <span className="mo">{r.qty} {r.unit}</span> },
+                  { k: "usta", h: "Kim oldi", r: (r) => r.usta || "—" },
+                  { k: "costSum", h: "Qiymati", r: (r) => <span style={{ color: T.gold, fontWeight: 600 }}>{fmtSum(r.costSum)}</span> },
+                  { k: "note", h: "Sabab", r: (r) => <span style={{ color: T.muted, fontSize: 12 }}>{r.note || "—"}</span> },
+                ]}
+                rows={data.serviceUsage}
+              />
+            </div>
+          </Card>
+        </div>
+      )}
+
       {stockOpen && <StockInModal data={data} rate={rate} onClose={() => setStockOpen(false)} onSave={(e) => { addStock(e); setStockOpen(false); }} />}
       {saleOpen && <FreeSaleModal products={data.products} data={data} rate={rate} onClose={() => setSaleOpen(false)} onSave={(s) => { addFreeSale(s); setSaleOpen(false); }} />}
+      {usageOpen && <ServiceUsageModal products={data.products} ustaNames={ustaNameOptions(data)} onClose={() => setUsageOpen(false)} onSave={(e) => { addServiceUsage(e); setUsageOpen(false); }} />}
       {invReqOpen && (
         <InventoryScheduleModal onClose={() => setInvReqOpen(false)}
           onSave={(date, note) => { scheduleInventory(date, note); setInvReqOpen(false); }} />
@@ -6583,6 +6628,55 @@ function StockInModal({ data, rate, onClose, onSave }) {
         paidOriginal: sourceType === "Ta'minotchi" ? num(paid) : num(effectiveUnitCost) * effectiveQty,
         sourceType, date: todayISO(),
       })}>Kirim qilish</SaveBtn>
+    </Modal>
+  );
+}
+
+function ServiceUsageModal({ products, ustaNames, onClose, onSave }) {
+  const [productId, setProductId] = useState(products[0]?.id || "");
+  const [qty, setQty] = useState(1);
+  const [usta, setUsta] = useState("");
+  const [note, setNote] = useState("");
+
+  const product = products.find((p) => p.id === productId);
+  const q = num(qty);
+  const overStock = product && q > num(product.qty);
+  const canSave = product && q > 0 && !overStock;
+
+  return (
+    <Modal title="Xizmat ehtiyoji uchun chiqarish" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+        Mijoz kartasiga emas, servisning o'z ehtiyojiga (masalan umumiy foydalaniladigan
+        jgut, asbob) ketgan mahsulot — shu orqali sklad qoldig'i to'g'ri kamayadi va
+        inventarizatsiyada kamomad chiqmaydi.
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Mahsulot / instrument">
+          {products.length ? (
+            <SearchSelect value={productId} onChange={setProductId} placeholder="Mahsulot nomini yozing..."
+              options={products.map((p) => ({ value: p.id, label: p.name, sub: `${p.qty} ${p.unit}` }))} />
+          ) : (
+            <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
+          )}
+        </F>
+        <F label={`Miqdor${product ? ` (${product.unit}, qoldiq: ${product.qty})` : ""}`}>
+          <input type="number" style={iSt} value={qty} onChange={(e) => setQty(e.target.value)} />
+        </F>
+        <F label="Kim oldi (ixtiyoriy)">
+          <input style={iSt} value={usta} onChange={(e) => setUsta(e.target.value)} placeholder="Usta ismi"
+            list="usage-usta-list" />
+          <datalist id="usage-usta-list">
+            {ustaNames.map((n) => <option key={n} value={n} />)}
+          </datalist>
+        </F>
+        <F label="Sababi / izoh">
+          <input style={iSt} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Masalan: umumiy jgut, sexda ishlatildi" />
+        </F>
+      </div>
+      {overStock && <p style={{ color: T.red, fontSize: 12, marginTop: 10 }}>Skladda yetarli emas — bor-yo'g'i {product.qty} {product.unit}.</p>}
+      <SaveBtn disabled={!canSave} onClick={() => onSave({ productId, qty: q, usta, note })}>
+        Chiqarish
+      </SaveBtn>
     </Modal>
   );
 }
