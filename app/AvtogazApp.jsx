@@ -521,22 +521,12 @@ function useActionLock() {
   }, []);
 }
 
-// Usta shogirt (yordamchi) bilan ishlasa — shogirtga belgilangan foiz (odatda 20%) shu
-// ustaning xizmat haqidan avtomatik ajratib olinadi. Ikkalasi ham "ustaLedger"ga alohida
-// yozuv sifatida tushadi — shu bilan ular bir-biridan mustaqil, o'z pulini o'zi ko'radi
-// va yopadi (Usta hisobi'dagi mavjud "Usta bo'yicha holat" jadvali orqali).
-function splitUstaLedgerAmount(apprentices, ustaName, amountSum) {
-  const rec = (apprentices || []).find((a) => sameName(a.usta, ustaName));
-  if (!rec || amountSum <= 0) return [{ usta: ustaName, amountSum }];
-  const pct = num(rec.percent) || 20;
-  const shogirtAmt = Math.round(amountSum * pct / 100);
-  const ustaAmt = amountSum - shogirtAmt;
-  return [
-    { usta: ustaName, amountSum: ustaAmt, shogirtGivenTo: rec.shogirt, shogirtGivenAmount: shogirtAmt,
-      note: `Shogirt (${rec.shogirt}) uchun ${fmtSum(shogirtAmt)} ajratildi` },
-    { usta: rec.shogirt, amountSum: shogirtAmt, shogirtSourceUsta: ustaName,
-      note: `${ustaName} — shogirt ulushi` },
-  ];
+// Usta shogirt (yordamchi) bilan ishlasa — usta hisobi (Kutilayotgan jami) hech qanday
+// o'zgarishsiz, to'liq holicha ko'rinadi (usta faqat kuzatadi). Shogirt ulushi FAQAT
+// kassir ustaning hisobini "Yopish" bosgan payt — taxminiy % (odatda 20%) sifatida
+// TAKLIF qilinadi, so'ngra kassir aniq summani o'zi (ko'proq yoki kamroq) belgilaydi.
+function apprenticeFor(apprentices, ustaName) {
+  return (apprentices || []).find((a) => sameName(a.usta, ustaName)) || null;
 }
 
 function ustaPendingByName(data) {
@@ -4612,15 +4602,10 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         // 20% servis foydasi sifatida kassada qoladi (profitSum'da allaqachon hisoblangan).
         const isDetailing = card.serviceType === "Detailing";
         const ustaLedgerAmount = isDetailing ? num(fin.ustaTakeHome) : num(fin.ustaFee);
-        const detailingNote = isDetailing ? `Material + usta haqining 80%i (jami pot: ${fmtSum(fin.ustaFee)})` : undefined;
-        splitUstaLedgerAmount(d.apprentices, card.usta || "Noma'lum", ustaLedgerAmount).forEach((part) => {
-          d.ustaLedger.unshift({
-            id: uid(), date: todayISO(), usta: part.usta,
-            cardId: card.id, amountSum: part.amountSum, paid: false,
-            note: [detailingNote, part.note].filter(Boolean).join(" · ") || undefined,
-            shogirtGivenTo: part.shogirtGivenTo, shogirtGivenAmount: part.shogirtGivenAmount,
-            shogirtSourceUsta: part.shogirtSourceUsta,
-          });
+        d.ustaLedger.unshift({
+          id: uid(), date: todayISO(), usta: card.usta || "Noma'lum",
+          cardId: card.id, amountSum: ustaLedgerAmount, paid: false,
+          note: isDetailing ? `Material + usta haqining 80%i (jami pot: ${fmtSum(fin.ustaFee)})` : undefined,
         });
       }
       // Kelishilgan (oylik) usta bo'lsa — fin.ustaFee kassaga chiqim yozilmaydi,
@@ -4717,13 +4702,9 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         });
       }
       if (num(updated.ustaFee) > 0 && !isContracted && !ustaAlreadyPaid) {
-        splitUstaLedgerAmount(d.apprentices, card.usta || "Noma'lum", num(updated.ustaFee)).forEach((part) => {
-          d.ustaLedger.unshift({
-            id: uid(), date: card.date || todayISO(), usta: part.usta,
-            cardId: card.id, amountSum: part.amountSum, paid: false,
-            note: part.note, shogirtGivenTo: part.shogirtGivenTo,
-            shogirtGivenAmount: part.shogirtGivenAmount, shogirtSourceUsta: part.shogirtSourceUsta,
-          });
+        d.ustaLedger.unshift({
+          id: uid(), date: card.date || todayISO(), usta: card.usta || "Noma'lum",
+          cardId: card.id, amountSum: updated.ustaFee, paid: false,
         });
       }
       if (num(updated.ustaFee) > 0 && isContracted) {
@@ -8073,6 +8054,7 @@ function DailyReport({ data, onClose }) {
 function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const [addContractedOpen, setAddContractedOpen] = useState(false);
   const [addApprenticeOpen, setAddApprenticeOpen] = useState(false);
+  const [closeSplitGroup, setCloseSplitGroup] = useState(null);
   const isSelf = !canManage; // usta o'zi kirgan — faqat o'ziga tegishlisini ko'radi
   const pendingByName = isSelf
     ? ustaPendingByName(data).filter((u) => sameName(u.usta, ustaName))
@@ -8090,6 +8072,10 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const closeGroupLock = useRef(false);
   function closeGroup(g) {
     if (closeGroupLock.current) return;
+    // Shogirti bor usta bo'lsa — to'g'ridan-to'g'ri yopmasdan, kassirga shogirt ulushini
+    // ko'rsatib tasdiqlash oynasini ochamiz (u xohlagancha o'zgartirishi mumkin).
+    const appr = apprenticeFor(apprentices, g.usta);
+    if (appr) { setCloseSplitGroup(g); return; }
     closeGroupLock.current = true;
     setTimeout(() => { closeGroupLock.current = false; }, 1500);
     patch((d) => {
@@ -8097,6 +8083,37 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
       d.cashflow.unshift({ id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM", amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate, note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)` });
       return d;
     });
+  }
+
+  // Kassir shogirt ulushini tasdiqlagach — ustaning hisobi yopiladi, LEKIN pul ikkiga
+  // bo'lib kassadan chiqadi: qolgan qism ustaga, ajratilgan qism shogirtga. Shogirt
+  // tomoni darhol "to'langan" deb yoziladi — bu faqat hisobot uchun (usta shogirtga
+  // qancha berganini ko'rishi uchun), shogirtning o'zi uchun alohida kutish/yopish yo'q.
+  function confirmCloseWithSplit(g, shogirtName, shogirtAmount) {
+    patch((d) => {
+      d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
+      const amt = Math.max(0, Math.min(num(shogirtAmount), g.amountSum));
+      const ustaAmt = g.amountSum - amt;
+      const label = g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`;
+      d.cashflow.unshift({
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        amount: ustaAmt, amountSum: ustaAmt, amountUsd: ustaAmt / rate,
+        note: amt > 0 ? `${label} — shogirt (${shogirtName}) uchun ${fmtSum(amt)} ajratildi` : label,
+      });
+      if (amt > 0) {
+        d.cashflow.unshift({
+          id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+          amount: amt, amountSum: amt, amountUsd: amt / rate,
+          note: `${shogirtName} — ${g.usta} shogirt ulushi`,
+        });
+        d.ustaLedger.unshift({
+          id: uid(), date: todayISO(), usta: shogirtName, amountSum: amt, paid: true,
+          shogirtSourceUsta: g.usta, note: `${g.usta} shogirt ulushi`,
+        });
+      }
+      return d;
+    });
+    setCloseSplitGroup(null);
   }
 
   function addContractedMaster(name) {
@@ -8127,12 +8144,13 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
     patch((d) => { d.apprentices = (d.apprentices || []).filter((a) => a.id !== id); return d; });
   }
 
-  // Har bir usta o'z shogirtiga jami qancha ajratganini (to'langan + kutilayotgan) ko'radi
+  // Har bir usta o'z shogirtiga jami qancha berganini (kassir har yopishda tasdiqlagan
+  // summalar bo'yicha) ko'radi
   const shogirtTotals = {};
-  data.ustaLedger.filter((e) => e.shogirtGivenTo).forEach((e) => {
-    const key = e.usta + "→" + e.shogirtGivenTo;
-    if (!shogirtTotals[key]) shogirtTotals[key] = { usta: e.usta, shogirt: e.shogirtGivenTo, total: 0 };
-    shogirtTotals[key].total += num(e.shogirtGivenAmount);
+  data.ustaLedger.filter((e) => e.shogirtSourceUsta).forEach((e) => {
+    const key = e.shogirtSourceUsta + "→" + e.usta;
+    if (!shogirtTotals[key]) shogirtTotals[key] = { usta: e.shogirtSourceUsta, shogirt: e.usta, total: 0 };
+    shogirtTotals[key].total += num(e.amountSum);
   });
   const shogirtTotalsList = Object.values(shogirtTotals)
     .filter((s) => !isSelf || sameName(s.usta, ustaName))
@@ -8190,9 +8208,10 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
           <Card title="Shogirtlar"
             action={<Btn size="sm" onClick={() => setAddApprenticeOpen(true)}><Plus size={12} /> Qo'shish</Btn>}>
             <p style={{ fontSize: 12, color: T.muted, marginBottom: apprentices.length ? 12 : 0 }}>
-              Usta shogirt bilan ishlasa — xizmat haqining belgilangan foizi (odatda 20%) avtomatik
-              shogirtga ajratiladi. Ikkalasi ham o'z ulushini pastdagi "Usta bo'yicha holat"dan
-              mustaqil ko'radi va yopadi.
+              Usta shogirt bilan ishlasa — ustaning hisobi ("Kutilayotgan jami") to'liq ko'rinishda
+              qoladi, usta faqat kuzatadi. Kassir shu ustani "Yopish" bosganda, belgilangan foiz
+              (odatda 20%) shogirt ulushi sifatida taklif etiladi — kassir aniq summani o'zi
+              (kamroq yoki ko'proq) belgilab, ikkalasiga alohida to'laydi.
             </p>
             {apprentices.length > 0 && (
               <div style={{ display: "grid", gap: 8 }}>
@@ -8286,7 +8305,36 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
           onClose={() => setAddApprenticeOpen(false)}
           onSave={(usta, shogirt, percent) => { addApprentice(usta, shogirt, percent); setAddApprenticeOpen(false); }} />
       )}
+      {closeSplitGroup && (
+        <CloseUstaWithApprenticeModal group={closeSplitGroup} apprentice={apprenticeFor(apprentices, closeSplitGroup.usta)}
+          onClose={() => setCloseSplitGroup(null)}
+          onConfirm={(shogirtAmount) => confirmCloseWithSplit(closeSplitGroup, apprenticeFor(apprentices, closeSplitGroup.usta).shogirt, shogirtAmount)} />
+      )}
     </div>
+  );
+}
+
+function CloseUstaWithApprenticeModal({ group, apprentice, onClose, onConfirm }) {
+  const suggested = Math.round(num(group.amountSum) * (num(apprentice.percent) || 20) / 100);
+  const [shogirtAmount, setShogirtAmount] = useState(String(suggested));
+  const ustaAmount = Math.max(0, num(group.amountSum) - num(shogirtAmount));
+  return (
+    <Modal title={`${group.usta} — hisobni yopish`} onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Jami hisob: <b className="mo">{fmtSum(group.amountSum)}</b>. Shogirt (<b>{apprentice.shogirt}</b>)
+        ulushi taklif etilgan {apprentice.percent}% — xohlasangiz o'zgartiring.
+      </p>
+      <F label={`Shogirt (${apprentice.shogirt}) ulushi`}>
+        <input type="number" style={iSt} value={shogirtAmount} onChange={(e) => setShogirtAmount(e.target.value)} autoFocus />
+      </F>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 2px 0", fontSize: 13 }}>
+        <span style={{ color: T.muted }}>{group.usta}ga qoladi</span>
+        <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{fmtSum(ustaAmount)}</span>
+      </div>
+      <SaveBtn color={T.teal} onClick={() => onConfirm(num(shogirtAmount))}>
+        <Check size={15} /> Tasdiqlash va yopish
+      </SaveBtn>
+    </Modal>
   );
 }
 
