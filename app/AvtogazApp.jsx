@@ -5881,6 +5881,28 @@ function WarehouseTab({ data, patch, rate, role }) {
     });
   }
 
+  // Kirim yozuvini tahrirlash — xato kiritilgan miqdor/summa uchun. Miqdor o'zgarsa,
+  // farqi mahsulot qoldig'iga ham qo'shiladi/ayiriladi (aks holda sklad qoldig'i
+  // kirim tarixidan uzilib qolar edi). To'langan summa bu yerda tahrirlanmaydi —
+  // u kassa yozuvlari bilan bog'liq, xato to'lovni "Kassa" bo'limidan o'chirish kerak.
+  function saveStockInEdit(stockInId, updated, reason) {
+    patch((d) => {
+      const idx = (d.stockIns || []).findIndex((s) => s.id === stockInId);
+      if (idx < 0) return d;
+      const before = d.stockIns[idx];
+      const qtyDelta = num(updated.qty) - num(before.qty);
+      if (qtyDelta !== 0) {
+        const product = d.products.find((p) => p.id === before.productId);
+        if (product) product.qty = Math.max(0, num(product.qty) + qtyDelta);
+      }
+      const after = { ...before, ...updated };
+      d.stockIns[idx] = after;
+      d.editLog = d.editLog || [];
+      d.editLog.push({ id: uid(), date: todayISO(), before, after, reason, user: "Kassir" });
+      return d;
+    });
+  }
+
   function addFreeSale(sale) {
     patch((d) => {
       sale.items.forEach((it) => {
@@ -6043,6 +6065,7 @@ function WarehouseTab({ data, patch, rate, role }) {
                     const d = num(r.totalSum) - num(r.paidSum);
                     return <span style={{ color: d > 0 ? T.red : T.teal, fontWeight: 600 }}>{fmtSum(d)}</span>;
                   } },
+                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} onSave={saveStockInEdit} /> },
               ]}
               rows={data.stockIns}
             />
@@ -6293,6 +6316,64 @@ function EditProductModal({ item, onClose, onSave }) {
         <F label="Sabab *" col="1/-1"><input style={iSt} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Narx oshdi, xato tuzatildi..." /></F>
       </div>
       <SaveBtn disabled={!reason.trim()} onClick={() => onSave({ ...f, convFactor: f.convUnit ? num(f.convFactor) : undefined }, { before: item, after: f, reason, user: "Kassir" })}>Saqlash</SaveBtn>
+    </Modal>
+  );
+}
+
+function PinGuardEditStockIn({ item, onSave }) {
+  const [pinOpen, setPinOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setPinOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 4 }}>
+        <Pencil size={13} />
+      </button>
+      {pinOpen && <SimplePinModal onClose={() => setPinOpen(false)} onSuccess={() => { setPinOpen(false); setEditOpen(true); }} />}
+      {editOpen && <EditStockInModal item={item} onClose={() => setEditOpen(false)} onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }} />}
+    </>
+  );
+}
+
+function EditStockInModal({ item, onClose, onSave }) {
+  const [qty, setQty] = useState(String(item.qty));
+  const [unitCostSum, setUnitCostSum] = useState(String(item.unitCostSum || ""));
+  const [totalSum, setTotalSum] = useState(String(item.totalSum || ""));
+  const [supplier, setSupplier] = useState(item.supplier || "");
+  const [reason, setReason] = useState("");
+
+  function handleQtyOrUnit(nextQty, nextUnitCost) {
+    setQty(nextQty);
+    setUnitCostSum(nextUnitCost);
+    const q = num(nextQty), u = num(nextUnitCost);
+    if (q > 0 && u > 0) setTotalSum(String(Math.round(q * u)));
+  }
+
+  return (
+    <Modal title={`Kirimni tahrirlash — ${item.productName}`} onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <F label={`Miqdor (${item.unit})`}>
+          <input type="number" style={iSt} value={qty} onChange={(e) => handleQtyOrUnit(e.target.value, unitCostSum)} />
+        </F>
+        <F label="Birlik narxi (so'm)">
+          <input type="number" style={iSt} value={unitCostSum} onChange={(e) => handleQtyOrUnit(qty, e.target.value)} />
+        </F>
+        <F label="Jami summa (so'm)" col="1/-1">
+          <input type="number" style={iSt} value={totalSum} onChange={(e) => setTotalSum(e.target.value)} />
+        </F>
+        <F label="Ta'minotchi" col="1/-1">
+          <input style={iSt} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+        </F>
+        <F label="Sabab *" col="1/-1">
+          <input style={iSt} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Xato kiritilgan summa tuzatildi..." />
+        </F>
+      </div>
+      <p style={{ fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
+        Miqdor o'zgartirilsa, farqi sklad qoldig'iga qo'shiladi/ayiriladi. To'langan summa bu yerdan
+        o'zgartirilmaydi — agar noto'g'ri to'lov kiritilgan bo'lsa, uni Kassa bo'limidan o'chiring.
+      </p>
+      <SaveBtn disabled={!reason.trim() || !num(qty) || !num(totalSum)} onClick={() => onSave({
+        qty: num(qty), unitCostSum: num(unitCostSum), totalSum: num(totalSum), supplier: supplier.trim(),
+      }, reason)}>Saqlash</SaveBtn>
     </Modal>
   );
 }
