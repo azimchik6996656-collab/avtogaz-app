@@ -488,6 +488,31 @@ function reverseDebtSettlement(d, kind, id, amountSum) {
   }
 }
 
+// "Usta xizmat haqi" kassa yozuvi (Usta hisobi'dagi "Yopish" orqali yaratilgan) o'chirilsa —
+// ustaning tegishli ustaLedger yozuvlari qaytadan "to'lanmagan" holatga qaytadi. Shogirt bilan
+// bo'lingan to'lovda ikki kassa yozuvi ("usta ulushi" + "shogirt ulushi") bir-biriga
+// ustaCloseId orqali bog'langan — ikkisidan qay birini o'chirsa, IKKALASI HAM birga
+// bekor qilinadi (aks holda faqat bittasi o'chib, ikkinchisi "osilib qolgan" pul bo'lib qolardi).
+function reverseUstaClose(d, entry) {
+  if (entry.ustaLedgerIds && entry.ustaLedgerIds.length) {
+    d.ustaLedger.forEach((e) => { if (entry.ustaLedgerIds.includes(e.id)) e.paid = false; });
+  }
+  if (entry.shogirtLedgerId) {
+    d.ustaLedger = d.ustaLedger.filter((e) => e.id !== entry.shogirtLedgerId);
+  }
+  if (entry.ustaCloseId) {
+    const pair = d.cashflow.find((c) => c.ustaCloseId === entry.ustaCloseId && c.id !== entry.id);
+    if (pair) {
+      if (pair.ustaLedgerIds && pair.ustaLedgerIds.length) {
+        d.ustaLedger.forEach((e) => { if (pair.ustaLedgerIds.includes(e.id)) e.paid = false; });
+      }
+      if (pair.shogirtLedgerId) {
+        d.ustaLedger = d.ustaLedger.filter((e) => e.id !== pair.shogirtLedgerId);
+      }
+      d.cashflow = d.cashflow.filter((c) => c.id !== pair.id);
+    }
+  }
+}
 
 function partnerBalances(data) {
   return data.partners.map((p) => {
@@ -7132,12 +7157,16 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                       // maydoniga qaytamiz, aks holda bunday eski yozuvlar hech qachon
                       // qarzni to'g'ri qaytarolmaydi.
                       const settleId = r.debtSettleId || (r.debtSettleKind === "supplier" ? r.supplier : undefined);
+                      const isUstaClose = r.category === "Usta xizmat haqi" && (r.ustaLedgerIds?.length || r.ustaCloseId);
                       const msg = r.debtSettleKind
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${settleId || ""}") ham shu summaga qaytariladi.`
+                        : isUstaClose
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — usta hisobini yopish yozuvi. O'chirilganda ustaning (va shogirt bo'lgan bo'lsa, uning ham) hisobi qaytadan "to'lanmagan" holatga qaytadi.`
                         : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
                       if (!(await askConfirm(msg))) return;
                       patch((d) => {
                         if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, settleId, num(r.amountSum));
+                        if (isUstaClose) reverseUstaClose(d, r);
                         d.cashflow = d.cashflow.filter((x) => x.id !== r.id);
                         return d;
                       });
@@ -8080,7 +8109,12 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
     setTimeout(() => { closeGroupLock.current = false; }, 1500);
     patch((d) => {
       d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
-      d.cashflow.unshift({ id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM", amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate, note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)` });
+      d.cashflow.unshift({
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate,
+        note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`,
+        ustaLedgerIds: g.ids,
+      });
       return d;
     });
   }
@@ -8095,19 +8129,26 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
       const amt = Math.max(0, Math.min(num(shogirtAmount), g.amountSum));
       const ustaAmt = g.amountSum - amt;
       const label = g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`;
+      // ustaCloseId ikkala yozuvni ("usta ulushi" + "shogirt ulushi") bir-biriga bog'laydi —
+      // biri o'chirilsa, ikkinchisi ham avtomatik o'chadi va usta hisobi qaytadan
+      // "to'lanmagan" holatga qaytadi (Kassadagi oddiy o'chirish tugmasi orqali).
+      const closeId = uid();
+      const shogirtLedgerId = amt > 0 ? uid() : undefined;
       d.cashflow.unshift({
         id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
         amount: ustaAmt, amountSum: ustaAmt, amountUsd: ustaAmt / rate,
         note: amt > 0 ? `${label} — shogirt (${shogirtName}) uchun ${fmtSum(amt)} ajratildi` : label,
+        ustaLedgerIds: g.ids, ustaCloseId: closeId,
       });
       if (amt > 0) {
         d.cashflow.unshift({
           id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
           amount: amt, amountSum: amt, amountUsd: amt / rate,
           note: `${shogirtName} — ${g.usta} shogirt ulushi`,
+          ustaCloseId: closeId, shogirtLedgerId,
         });
         d.ustaLedger.unshift({
-          id: uid(), date: todayISO(), usta: shogirtName, amountSum: amt, paid: true,
+          id: shogirtLedgerId, date: todayISO(), usta: shogirtName, amountSum: amt, paid: true,
           shogirtSourceUsta: g.usta, note: `${g.usta} shogirt ulushi`,
         });
       }
