@@ -6065,7 +6065,7 @@ function WarehouseTab({ data, patch, rate, role }) {
                     const d = num(r.totalSum) - num(r.paidSum);
                     return <span style={{ color: d > 0 ? T.red : T.teal, fontWeight: 600 }}>{fmtSum(d)}</span>;
                   } },
-                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} onSave={saveStockInEdit} /> },
+                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} rate={rate} onSave={saveStockInEdit} /> },
               ]}
               rows={data.stockIns}
             />
@@ -6320,7 +6320,7 @@ function EditProductModal({ item, onClose, onSave }) {
   );
 }
 
-function PinGuardEditStockIn({ item, onSave }) {
+function PinGuardEditStockIn({ item, rate, onSave }) {
   const [pinOpen, setPinOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   return (
@@ -6329,37 +6329,67 @@ function PinGuardEditStockIn({ item, onSave }) {
         <Pencil size={13} />
       </button>
       {pinOpen && <SimplePinModal onClose={() => setPinOpen(false)} onSuccess={() => { setPinOpen(false); setEditOpen(true); }} />}
-      {editOpen && <EditStockInModal item={item} onClose={() => setEditOpen(false)} onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }} />}
+      {editOpen && <EditStockInModal item={item} rate={rate} onClose={() => setEditOpen(false)} onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }} />}
     </>
   );
 }
 
-function EditStockInModal({ item, onClose, onSave }) {
+function EditStockInModal({ item, rate, onClose, onSave }) {
+  const [currency, setCurrency] = useState(item.currency || "SUM");
   const [qty, setQty] = useState(String(item.qty));
-  const [unitCostSum, setUnitCostSum] = useState(String(item.unitCostSum || ""));
-  const [totalSum, setTotalSum] = useState(String(item.totalSum || ""));
+  // Maydonlar tanlangan valyutada ko'rsatiladi (USD bo'lsa — dollarda). Boshlang'ich qiymat
+  // yozuv qaysi valyutada kiritilgan bo'lsa, shundan olinadi.
+  const [unitCost, setUnitCost] = useState(String(
+    (item.currency === "USD" ? item.unitCostOriginal : item.unitCostSum) || ""
+  ));
+  const [totalAmt, setTotalAmt] = useState(String(
+    (item.currency === "USD" ? item.totalOriginal : item.totalSum) || ""
+  ));
   const [supplier, setSupplier] = useState(item.supplier || "");
   const [reason, setReason] = useState("");
 
   function handleQtyOrUnit(nextQty, nextUnitCost) {
     setQty(nextQty);
-    setUnitCostSum(nextUnitCost);
+    setUnitCost(nextUnitCost);
     const q = num(nextQty), u = num(nextUnitCost);
-    if (q > 0 && u > 0) setTotalSum(String(Math.round(q * u)));
+    if (q > 0 && u > 0) setTotalAmt(String(Math.round(q * u * 100) / 100));
+  }
+
+  function handleCurrency(next) {
+    // Valyuta almashtirilganda maydonlarni bo'sh qilamiz — SUM<->USD orasida noto'g'ri
+    // (eski kursdagi) raqamni qoldirib, chalkashtirib yubormaslik uchun.
+    setCurrency(next);
+    setUnitCost("");
+    setTotalAmt("");
   }
 
   return (
     <Modal title={`Kirimni tahrirlash — ${item.productName}`} onClose={onClose}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <F label="Valyuta" col="1/-1">
+        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}` }}>
+          {[["SUM", "So'm"], ["USD", "Dollar"]].map(([id, l]) => (
+            <button key={id} onClick={() => handleCurrency(id)} type="button" style={{
+              flex: 1, padding: "9px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+              background: currency === id ? T.flame : "transparent", color: currency === id ? "#fff" : T.muted,
+            }}>{l}</button>
+          ))}
+        </div>
+      </F>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
         <F label={`Miqdor (${item.unit})`}>
-          <input type="number" style={iSt} value={qty} onChange={(e) => handleQtyOrUnit(e.target.value, unitCostSum)} />
+          <input type="number" style={iSt} value={qty} onChange={(e) => handleQtyOrUnit(e.target.value, unitCost)} />
         </F>
-        <F label="Birlik narxi (so'm)">
-          <input type="number" style={iSt} value={unitCostSum} onChange={(e) => handleQtyOrUnit(qty, e.target.value)} />
+        <F label={`Birlik narxi (${currency === "USD" ? "$" : "so'm"})`}>
+          <input type="number" style={iSt} value={unitCost} onChange={(e) => handleQtyOrUnit(qty, e.target.value)} />
         </F>
-        <F label="Jami summa (so'm)" col="1/-1">
-          <input type="number" style={iSt} value={totalSum} onChange={(e) => setTotalSum(e.target.value)} />
+        <F label={`Jami summa (${currency === "USD" ? "$" : "so'm"})`} col="1/-1">
+          <input type="number" style={iSt} value={totalAmt} onChange={(e) => setTotalAmt(e.target.value)} />
         </F>
+        {currency === "USD" && num(totalAmt) > 0 && (
+          <p style={{ fontSize: 12, color: T.muted, gridColumn: "1/-1", marginTop: -6 }}>
+            ≈ {fmtSum(toSum(num(totalAmt), "USD", rate))} so'm (joriy kurs {fmtSum(rate)})
+          </p>
+        )}
         <F label="Ta'minotchi" col="1/-1">
           <input style={iSt} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
         </F>
@@ -6371,8 +6401,12 @@ function EditStockInModal({ item, onClose, onSave }) {
         Miqdor o'zgartirilsa, farqi sklad qoldig'iga qo'shiladi/ayiriladi. To'langan summa bu yerdan
         o'zgartirilmaydi — agar noto'g'ri to'lov kiritilgan bo'lsa, uni Kassa bo'limidan o'chiring.
       </p>
-      <SaveBtn disabled={!reason.trim() || !num(qty) || !num(totalSum)} onClick={() => onSave({
-        qty: num(qty), unitCostSum: num(unitCostSum), totalSum: num(totalSum), supplier: supplier.trim(),
+      <SaveBtn disabled={!reason.trim() || !num(qty) || !num(totalAmt)} onClick={() => onSave({
+        qty: num(qty), supplier: supplier.trim(), currency,
+        unitCostSum: toSum(num(unitCost), currency, rate),
+        totalSum: toSum(num(totalAmt), currency, rate),
+        unitCostOriginal: currency === "USD" ? num(unitCost) : undefined,
+        totalOriginal: currency === "USD" ? num(totalAmt) : undefined,
       }, reason)}>Saqlash</SaveBtn>
     </Modal>
   );
