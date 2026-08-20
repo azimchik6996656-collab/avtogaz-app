@@ -1739,7 +1739,56 @@ function ResetAllConfirmModal({ data, onClose, onConfirm }) {
   );
 }
 
-function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
+// Har bir filial /app/<branchId>/page.js orqali, mustaqil manzilda ochiladi (BRANCH_LABELS
+// bilan mos). Bu ro'yxat kodda qo'lda yuritiladi — yangi filial qo'shilsa (yangi papka +
+// BRANCH_LABELS yozuvi), shu yerga ham bitta qator qo'shiladi.
+const BRANCH_LINKS = [
+  { id: "main", path: "/" },
+  { id: "filial2", path: "/filial2" },
+];
+
+function BranchesModal({ currentBranchId, onClose }) {
+  return (
+    <Modal title="Filiallar" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Har bir filial — bosh tizimdan butunlay mustaqil (o'z skladi, kassasi, kartalari,
+        xodimlari). Filial almashtirish uchun quyidagi manzilga o'ting.
+      </p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {BRANCH_LINKS.map((b) => {
+          const isCurrent = b.id === currentBranchId;
+          return (
+            <div key={b.id} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              background: isCurrent ? T.flameD : T.s3, border: `1px solid ${isCurrent ? T.flame + "40" : T.border}`,
+              borderRadius: 10, padding: "11px 15px",
+            }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: isCurrent ? T.flame : T.text }}>
+                  {BRANCH_LABELS[b.id] || b.id}
+                </div>
+                <div className="mo" style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{b.path}</div>
+              </div>
+              {isCurrent ? (
+                <Badge color={T.flame}>Hozir shu yerda</Badge>
+              ) : (
+                <a href={b.path} style={{
+                  fontSize: 12, fontWeight: 700, color: T.blue, textDecoration: "none",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>O'tish →</a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 11, color: T.muted, marginTop: 14, lineHeight: 1.5 }}>
+        Yangi filial ochish uchun (o'z manzili, xodimlari va PIN kodlari bilan) dasturchiga murojaat qiling.
+      </p>
+    </Modal>
+  );
+}
+
+function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId }) {
   const [open, setOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -1909,12 +1958,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
           onRemove={(id) => patch((d) => { d.settings.partnerCodes = (d.settings.partnerCodes || []).filter((c) => c.id !== id); return d; })}
         />
       )}
-      {branchesOpen && (
-        <BranchesModal branches={data.settings.branches || []} onClose={() => setBranchesOpen(false)}
-          onAdd={(branch) => patch((d) => { d.settings.branches = d.settings.branches || []; d.settings.branches.push({ id: uid(), ...branch }); return d; })}
-          onRemove={(id) => patch((d) => { d.settings.branches = (d.settings.branches || []).filter((b) => b.id !== id); return d; })}
-        />
-      )}
+      {branchesOpen && <BranchesModal currentBranchId={branchId} onClose={() => setBranchesOpen(false)} />}
     </div>
   );
 }
@@ -2988,16 +3032,21 @@ function PartnerPanelTab({ data, partnerId }) {
 /* ═══════════════════════════════════════════════════
    ROOT APP
 ═══════════════════════════════════════════════════ */
-const LOCAL_BACKUP_KEY = "avtogaz-v2-local-backup";
+const LOCAL_BACKUP_KEY_BASE = "avtogaz-v2-local-backup";
+// Bir xil brauzerda ikkala filial ham ochilishi mumkin (masalan Azim ikkalasini ham
+// boshqaradi) — localStorage butun saytga UMUMIY bo'lgani uchun, kalitga filial nomini
+// qo'shmasak, filial2'ni ochganda bosh filialning lokal zaxirasi noto'g'ri ishlatilib
+// qolardi (yoki aksincha).
+function localBackupKey() { return `${LOCAL_BACKUP_KEY_BASE}-${authClient.branchId}`; }
 
 function saveLocalBackup(data) {
-  try { localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({ data, savedAt: Date.now() })); }
+  try { localStorage.setItem(localBackupKey(), JSON.stringify({ data, savedAt: Date.now() })); }
   catch (e) { /* localStorage to'liq bo'lishi mumkin, jim o'tamiz */ }
 }
 
 function loadLocalBackup() {
   try {
-    const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
+    const raw = localStorage.getItem(localBackupKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed || null; // {data, savedAt} ni to'liq qaytaramiz
@@ -3401,7 +3450,7 @@ export default function App({ branchId = "main" }) {
           <div style={{ width: 1, height: 22, background: T.border }} className="hide-sm" />
 
           <HeaderMenu
-            role={role} rate={rate} patch={patch} data={data}
+            role={role} rate={rate} patch={patch} data={data} branchId={branchId}
             onImport={(p) => {
               const next = { ...emptyData(), ...p, settings: { ...emptyData().settings, ...(p.settings || {}) } };
               const actor = ustaName || supplierName || partnerId || role || "noma'lum";
