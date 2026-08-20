@@ -1,10 +1,7 @@
 import { serverClient } from "../../../lib/supabaseServer";
-import { verifySession } from "../../../lib/pinSession";
-import { verifyGoogleStaff } from "../../../lib/staffAuth";
+import { resolveAuth } from "../../../lib/authRequest";
 
 export const dynamic = "force-dynamic";
-
-const ROW_ID = "main";
 
 // Bu route optimistic-lock versiyasiga tayanadi — javob HECH QACHON keshlanmasligi
 // kerak, aks holda brauzer/CDN eski versiyani qaytarib, saqlashda doimiy
@@ -16,27 +13,17 @@ function json(body, init) {
 
 /**
  * MUHIM: bu route SERVICE ROLE kaliti bilan ishlaydi (RLS'ni chetlab o'tadi),
- * shuning uchun ruxsat tekshiruvi shu yerda, qo'lda amalga oshiriladi:
- *  - PIN-sessiya tokeni (usta/ta'minotchi/hamkor, /api/login orqali olingan), YOKI
- *  - Google (Supabase Auth) access_token + `staff` jadvalida ro'yxatdan o'tgan email
- * Ikkisidan biri ham to'g'ri kelmasa — so'rov rad etiladi.
+ * shuning uchun ruxsat tekshiruvi shu yerda, qo'lda amalga oshiriladi
+ * (resolveAuth — PIN-sessiya yoki Google/staff tokeni). Har bir FILIAL
+ * (branch) o'zining `app_data` qatoriga ega — auth.branchId shu qatorni
+ * belgilaydi (PIN-sessiyada tokendan, Google oqimida mijoz so'ragan va
+ * staff jadvalida tasdiqlangan filialdan).
  */
-async function authorize(request) {
-  const authHeader = request.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!token) return { ok: false, status: 401, error: "Avtorizatsiya kerak" };
-
-  const pinPayload = verifySession(token);
-  if (pinPayload) return { ok: true, role: pinPayload.role };
-
-  return await verifyGoogleStaff(token);
-}
-
 export async function GET(request) {
-  const auth = await authorize(request);
+  const { searchParams } = new URL(request.url);
+  const auth = await resolveAuth(request, searchParams.get("branchId"));
   if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
-  const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
   if (!key) return json({ ok: false, error: "key kerak" }, { status: 400 });
 
@@ -45,7 +32,7 @@ export async function GET(request) {
     const { data, error } = await supabase
       .from("app_data")
       .select("data, updated_at")
-      .eq("id", ROW_ID)
+      .eq("id", auth.branchId)
       .single();
 
     if (error && error.code !== "PGRST116") throw error;
@@ -66,7 +53,7 @@ export async function GET(request) {
 }
 
 /**
- * PUT body: { key, valueStr, expectedVersion }
+ * PUT body: { key, valueStr, expectedVersion, branchId }
  * Optimistic lock: expectedVersion serverdagi bilan mos kelmasa 409 (conflict).
  *
  * MUHIM: tekshirish va yozish "save_app_data" SQL funksiyasi ichida, "for update"
@@ -77,12 +64,13 @@ export async function GET(request) {
  * qolib, biri ikkinchisining yozganini sezmasdan bosib yuborishi mumkin edi.
  */
 export async function PUT(request) {
-  const auth = await authorize(request);
-  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
-
   try {
     const body = await request.json();
-    const { key, valueStr, expectedVersion } = body || {};
+    const { key, valueStr, expectedVersion, branchId } = body || {};
+
+    const auth = await resolveAuth(request, branchId);
+    if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
+
     if (!key || valueStr === undefined) {
       return json({ ok: false, error: "key va valueStr kerak" }, { status: 400 });
     }
@@ -90,7 +78,7 @@ export async function PUT(request) {
     const parsed = JSON.parse(valueStr);
     const supabase = serverClient();
     const { data: result, error } = await supabase.rpc("save_app_data", {
-      p_id: ROW_ID,
+      p_id: auth.branchId,
       p_key: key,
       p_value: parsed,
       p_expected_version:

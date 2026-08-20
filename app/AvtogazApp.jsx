@@ -25,6 +25,9 @@ const STORAGE_KEY = "avtogaz-v2";
    Saytda shu raqam ko'rinsa, demak eng yangi kod ishlayapti. */
 const APP_VERSION = "v58";
 const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad" };
+// Har bir filial /app/<branchId>/page.js orqali kiriladi — ROW_ID sifatida shu qiymat
+// ishlatiladi (Supabase'da mustaqil qator). Yangi filial qo'shilsa, shu yerga ham qo'shiladi.
+const BRANCH_LABELS = { main: "Bosh filial", filial2: "2-filial" };
 
 const UNITS = ["dona", "kg", "litr", "metr", "komplekt"];
 const SERVICE_TYPES = ["Servis", "Ustanovka", "Detailing", "Moy bo'limi"];
@@ -1217,7 +1220,7 @@ function StaffPinModal({ onClose }) {
     setError("");
     try {
       const authHeader = await authClient.getAuthHeader();
-      const res = await fetch("/api/staff", { headers: authHeader ? { Authorization: authHeader } : {} });
+      const res = await fetch(`/api/staff?branchId=${encodeURIComponent(authClient.branchId)}`, { headers: authHeader ? { Authorization: authHeader } : {} });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Ro'yxatni yuklab bo'lmadi");
       setStaff(json.staff || []);
@@ -1238,7 +1241,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/set-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email, pin }),
+        body: JSON.stringify({ email, pin, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Saqlanmadi");
@@ -1264,7 +1267,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/add", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email, fullName, role: newRole }),
+        body: JSON.stringify({ email, fullName, role: newRole, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Qo'shilmadi");
@@ -1286,7 +1289,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "O'chirilmadi");
@@ -2366,7 +2369,7 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
       const res = await fetch("/api/verify-2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${pending.token}` },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok) {
@@ -2470,7 +2473,7 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
 /* ═══════════════════════════════════════════════════
    LOGIN SCREEN
 ═══════════════════════════════════════════════════ */
-function LoginScreen({ authError, onSuccess }) {
+function LoginScreen({ branchId, authError, onSuccess }) {
   const [digits, setDigits] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2551,7 +2554,7 @@ function LoginScreen({ authError, onSuccess }) {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: v }),
+        body: JSON.stringify({ pin: v, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok) {
@@ -2718,6 +2721,13 @@ function LoginScreen({ authError, onSuccess }) {
                 Xush kelibsiz
               </div>
               <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: LOGIN_T.teal }}>{APP_VERSION}</div>
+              {branchId !== "main" && (
+                <div style={{
+                  display: "inline-flex", marginTop: 10, padding: "4px 12px", borderRadius: 20,
+                  background: `${LOGIN_T.flame}22`, border: `1px solid ${LOGIN_T.flame}40`,
+                  fontSize: 11, fontWeight: 700, color: LOGIN_T.flame, letterSpacing: ".03em",
+                }}>{BRANCH_LABELS[branchId] || branchId}</div>
+              )}
             </div>
 
             <div style={{ padding: "22px 30px 0" }}>
@@ -2998,7 +3008,12 @@ function isValidData(p) {
   return p && typeof p === "object" && Array.isArray(p.products) && Array.isArray(p.serviceCards);
 }
 
-export default function App() {
+export default function App({ branchId = "main" }) {
+  // Har bir filial (branch) — Supabase'da mustaqil qatorga ega. authClient
+  // shu qiymatni saqlab, storage/login/2FA/staff so'rovlariga qo'shib yuboradi
+  // (App() qayta chaqirilganda ham xavfsiz — shunchaki qiymatni yangilaydi).
+  authClient.setBranchId(branchId);
+
   const [data, setData] = useState(emptyData());
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error | conflict
@@ -3025,7 +3040,7 @@ export default function App() {
       try {
         const session = await authClient.getGoogleSession();
         if (session?.access_token) {
-          const res = await fetch("/api/whoami", {
+          const res = await fetch(`/api/whoami?branchId=${encodeURIComponent(authClient.branchId)}`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           const json = await res.json().catch(() => ({}));
@@ -3245,6 +3260,7 @@ export default function App() {
 
   if (!role) return (
     <LoginScreen
+      branchId={branchId}
       authError={authError}
       onSuccess={(r, name) => {
         setAuthError("");
@@ -3315,6 +3331,13 @@ export default function App() {
                 border: `1px solid ${T.teal}35`, borderRadius: 5, padding: "2px 6px",
                 letterSpacing: 0,
               }}>{APP_VERSION}</span>
+              {branchId !== "main" && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: T.flame, background: T.flameD,
+                  border: `1px solid ${T.flame}35`, borderRadius: 5, padding: "2px 6px",
+                  letterSpacing: 0, textTransform: "none",
+                }}>{BRANCH_LABELS[branchId] || branchId}</span>
+              )}
             </div>
             <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: ".1em", fontWeight: 600, marginTop: 2 }}>
               {(role === "usta" && ustaName ? ustaName.toUpperCase()
