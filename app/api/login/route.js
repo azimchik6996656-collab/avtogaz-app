@@ -72,10 +72,15 @@ export async function POST(request) {
     const supplierCodes = settings.supplierCodes || [];
     const partnerCodes = settings.partnerCodes || [];
     const rahbarPin = settings.pins?.rahbar;
+    const stationPin = settings.pins?.ustaStation;
 
     if (rahbarPin && (await pinsMatch(pin, rahbarPin))) {
       recordSuccess(ip);
       return Response.json({ ok: true, role: "rahbar", token: issueSession({ role: "rahbar", branchId }) });
+    }
+    if (stationPin && (await pinsMatch(pin, stationPin))) {
+      recordSuccess(ip);
+      return Response.json({ ok: true, role: "usta_station", token: issueSession({ role: "usta_station", branchId }) });
     }
     for (const u of ustaCodes) {
       if (u?.code && (await pinsMatch(pin, u.code))) {
