@@ -5044,45 +5044,50 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         </div>
       )}
 
-      {/* SEARCH + CLOSED */}
-      <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
-        <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
-      </div>
+      {/* SEARCH + CLOSED — stansiyada kerak emas: bu umumiy planshet joriy ish bilan shug'ullanadi,
+          butun servisning yopilgan ishlar tarixini ko'rsatib o'tirmaydi. */}
+      {!isStation && (
+        <>
+          <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+            <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
+          </div>
 
-      <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
-        <div style={{ padding: "14px 18px" }}>
-        <DateGroupedList
-          empty="Yakunlangan karta yo'q"
-          amountFn={hideFinance ? null : (r) => num(r.profitSum)}
-          cols={[
-            { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
-            { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
-            ...(!isUsta ? [
-              { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
-            ] : []),
-            { k: "carModel", h: "Mashina" },
-            { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
-            { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
-            ...(!hideFinance ? [
-              { k: "partsCost", h: "Tan narx", r: (r) => <span style={{ color: T.muted2 }}>{fmtSum(cardPartsCost(r))}</span> },
-            ] : []),
-            { k: "ustaFee", h: "Usta haqi", r: (r) => <span style={{ color: T.gold }}>{fmtSum(cardUstaFeeSum(r))}</span> },
-            ...(!hideFinance ? [
-              { k: "finalTotal", h: "Yakuniy", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(r.finalTotal)}</span> },
-              { k: "profitSum", h: "Foyda", r: (r) => <span className="mo" style={{ fontWeight: 700, color: num(r.profitSum) >= 0 ? T.teal : T.red }}>{fmtSum(r.profitSum)}</span> },
-            ] : []),
-            { k: "view", h: "", r: (r) => <button onClick={() => setViewCard(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.blue }}><Search size={13} /></button> },
-            ...(!hideFinance ? [
-              { k: "edit", h: "", r: (r) => <button onClick={() => setEditPinOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
-              { k: "del", h: "", r: (r) => <button onClick={() => deleteCard(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
-            ] : []),
-          ]}
-          rows={closedCards}
-        />
-        </div>
-      </Card>
+          <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
+            <div style={{ padding: "14px 18px" }}>
+            <DateGroupedList
+              empty="Yakunlangan karta yo'q"
+              amountFn={hideFinance ? null : (r) => num(r.profitSum)}
+              cols={[
+                { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
+                { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
+                ...(!isUsta ? [
+                  { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
+                ] : []),
+                { k: "carModel", h: "Mashina" },
+                { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
+                { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
+                ...(!hideFinance ? [
+                  { k: "partsCost", h: "Tan narx", r: (r) => <span style={{ color: T.muted2 }}>{fmtSum(cardPartsCost(r))}</span> },
+                ] : []),
+                { k: "ustaFee", h: "Usta haqi", r: (r) => <span style={{ color: T.gold }}>{fmtSum(cardUstaFeeSum(r))}</span> },
+                ...(!hideFinance ? [
+                  { k: "finalTotal", h: "Yakuniy", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(r.finalTotal)}</span> },
+                  { k: "profitSum", h: "Foyda", r: (r) => <span className="mo" style={{ fontWeight: 700, color: num(r.profitSum) >= 0 ? T.teal : T.red }}>{fmtSum(r.profitSum)}</span> },
+                ] : []),
+                { k: "view", h: "", r: (r) => <button onClick={() => setViewCard(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.blue }}><Search size={13} /></button> },
+                ...(!hideFinance ? [
+                  { k: "edit", h: "", r: (r) => <button onClick={() => setEditPinOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
+                  { k: "del", h: "", r: (r) => <button onClick={() => deleteCard(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
+                ] : []),
+              ]}
+              rows={closedCards}
+            />
+            </div>
+          </Card>
+        </>
+      )}
 
       {viewCard && <CardDetailModal card={viewCard} isUsta={hideFinance} onClose={() => setViewCard(null)} />}
 
