@@ -9302,6 +9302,18 @@ function GiveProductModal({ partner, products, data, onClose, onSave }) {
 ═══════════════════════════════════════════════════ */
 function currentMonthKey() { return todayISO().slice(0, 7); }
 
+// Avgust hisobi odatdagidek oy oxirigacha emas, 29-avgustda erta yopildi.
+// Shuning uchun 30—31-avgust yozuvlari (KPI, avans) endi SENTYABR davriga
+// tegishli deb hisoblanadi. Bu — Azim KPI va avans-hisob oynalari uchun
+// "amaldagi hisob oyi"ni to'g'ri aniqlaydigan yordamchi funksiya.
+// Muhim: bu faqat shu bir martalik chegara uchun; kelajakda oddiy kalendar
+// oyiga qaytadi.
+function accountingMonthKey(dateStr) {
+  const d = dateStr || todayISO();
+  if (d >= "2026-08-30" && d <= "2026-08-31") return "2026-09";
+  return d.slice(0, 7);
+}
+
 function EmployeesTab({ data, patch, rate }) {
   const runLocked = useActionLock();
   const [addOpen, setAddOpen] = useState(false);
@@ -9319,7 +9331,7 @@ function EmployeesTab({ data, patch, rate }) {
     return monthPayments.filter((p) => p.employeeId === employeeId).reduce((s, p) => s + num(p.amountSum), 0);
   }
 
-  const months = [...new Set([currentMonthKey(), ...payments.map((p) => p.month)])].sort().reverse();
+  const months = [...new Set([currentMonthKey(), accountingMonthKey(), ...payments.map((p) => p.month)])].sort().reverse();
 
   // "Analitika" bo'limidagi Azim KPI shu oyda qo'shilgan bo'lsa — KPI'ga "ulangan"
   // xodimning shu oygi oyligiga qo'shib ko'rsatamiz. Haqiqiy standardSalary o'zgarmaydi,
@@ -9341,19 +9353,30 @@ function EmployeesTab({ data, patch, rate }) {
   // hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
   // Bir martalik istisno: oylik 25-kuni yopilgani uchun 27-28 iyuldagi yozuvlar aslida
   // avgust davriga tegishli — shuning uchun avgust oynasi 27-iyuldan boshlanadi.
+  // Xuddi shunday, avgust hisobi 29-avgustda erta yopildi — shuning uchun 30-31-avgust
+  // yozuvlari endi sentyabr davriga tegishli (avgust oynasi 29-avgustda tugaydi).
   //
   // MUHIM: iyul oynasi ham aynan shu kundan OLDIN tugashi shart. Aks holda 27-28 iyul
   // ikkala oynaga ham tushib, bir xil pul iyulda ham, avgustda ham "olingan" deb
   // ko'rsatiladi (bu yerda 1 500 000 so'm shunday ikki marta hisoblangan edi).
   const AUG_PERIOD_START = "2026-07-27";
+  const AUG_PERIOD_END = "2026-08-29";
   const prevDay = (iso) => {
     const t = new Date(iso + "T00:00:00Z");
     t.setUTCDate(t.getUTCDate() - 1);
     return t.toISOString().slice(0, 10);
   };
-  const drawFrom = monthFilter === "2026-08" ? AUG_PERIOD_START : monthFilter + "-01";
+  const nextDay = (iso) => {
+    const t = new Date(iso + "T00:00:00Z");
+    t.setUTCDate(t.getUTCDate() + 1);
+    return t.toISOString().slice(0, 10);
+  };
+  const drawFrom =
+    monthFilter === "2026-08" ? AUG_PERIOD_START
+    : monthFilter === "2026-09" ? nextDay(AUG_PERIOD_END)
+    : monthFilter + "-01";
   const drawTo =
-    monthFilter === "2026-08" ? "2026-08-31"
+    monthFilter === "2026-08" ? AUG_PERIOD_END
     : monthFilter === AUG_PERIOD_START.slice(0, 7) ? prevDay(AUG_PERIOD_START)
     : monthFilter + "-31";
   const azimEmp = employeesRaw.find((e) => e.id === azimEmployeeId);
@@ -10626,9 +10649,10 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
   // MUHIM: saqlangan data.settings.azimKpi ga tayanmaymiz — u eski kodda
   // BARCHA vaqt davomidagi (hamma oylar) yig'indi bo'lib, hech qachon
   // yangi oyda noldan boshlanmasdi ("eski KPI yakunlanmayapti" xatosi).
-  // Endi har doim JORIY oy bo'yicha jonli hisoblanadi.
+  // Endi har doim JORIY hisob davri bo'yicha jonli hisoblanadi — 30-31-avgust
+  // sentyabr davriga tegishli (avgust 29-avgustda erta yopilgani uchun).
   const azimKpi = (data.settings.azimKpiHistory || [])
-    .filter((h) => h.month === currentMonthKey())
+    .filter((h) => h.month === accountingMonthKey())
     .reduce((s, h) => s + num(h.amount), 0);
 
   // KPI kartochkalar bosilganda ochiladigan tafsilot ro'yxatlari — eng katta
@@ -10737,7 +10761,7 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
           <KpiEditCard value={azimKpi} history={data.settings.azimKpiHistory}
             onAdd={(amount, reason) => patch((d) => {
               d.settings.azimKpiHistory = d.settings.azimKpiHistory || [];
-              const thisMonth = currentMonthKey();
+              const thisMonth = accountingMonthKey();
               d.settings.azimKpiHistory.push({ id: uid(), month: thisMonth, amount, reason, date: todayISO() });
               // Faqat JORIY oy uchun yig'indi — o'tgan oylar bu yerga qo'shilmaydi,
               // shu sababli har yangi oy avtomatik noldan boshlanadi.
