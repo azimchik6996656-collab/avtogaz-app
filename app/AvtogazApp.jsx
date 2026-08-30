@@ -23,7 +23,7 @@ import {
 const STORAGE_KEY = "avtogaz-v2";
 /* Yuklanish tekshiruvi uchun — sarlavhada ko'rinadi.
    Saytda shu raqam ko'rinsa, demak eng yangi kod ishlayapti. */
-const APP_VERSION = "v58";
+const APP_VERSION = "v59";
 const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad", usta_station: "Usta stansiyasi" };
 // Har bir filial /app/<branchId>/page.js orqali kiriladi — ROW_ID sifatida shu qiymat
 // ishlatiladi (Supabase'da mustaqil qator). Yangi filial qo'shilsa, shu yerga ham qo'shiladi.
@@ -10623,7 +10623,13 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
   const totalRevenue = sumF(cards, "finalTotal");
   const totalProfit = sumF(cards, "profitSum");
   const totalProductProfit = productProfitReport(data).reduce((s, r) => s + r.profit, 0);
-  const azimKpi = num(data.settings.azimKpi);
+  // MUHIM: saqlangan data.settings.azimKpi ga tayanmaymiz — u eski kodda
+  // BARCHA vaqt davomidagi (hamma oylar) yig'indi bo'lib, hech qachon
+  // yangi oyda noldan boshlanmasdi ("eski KPI yakunlanmayapti" xatosi).
+  // Endi har doim JORIY oy bo'yicha jonli hisoblanadi.
+  const azimKpi = (data.settings.azimKpiHistory || [])
+    .filter((h) => h.month === currentMonthKey())
+    .reduce((s, h) => s + num(h.amount), 0);
 
   // KPI kartochkalar bosilganda ochiladigan tafsilot ro'yxatlari — eng katta
   // summadan boshlab, shu raqam qaysi yozuvlardan yig'ilganini ko'rsatadi.
@@ -10731,8 +10737,13 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
           <KpiEditCard value={azimKpi} history={data.settings.azimKpiHistory}
             onAdd={(amount, reason) => patch((d) => {
               d.settings.azimKpiHistory = d.settings.azimKpiHistory || [];
-              d.settings.azimKpiHistory.push({ id: uid(), month: (new Date()).toISOString().slice(0, 7), amount, reason, date: todayISO() });
-              d.settings.azimKpi = (d.settings.azimKpiHistory || []).reduce((s, h) => s + num(h.amount), 0);
+              const thisMonth = currentMonthKey();
+              d.settings.azimKpiHistory.push({ id: uid(), month: thisMonth, amount, reason, date: todayISO() });
+              // Faqat JORIY oy uchun yig'indi — o'tgan oylar bu yerga qo'shilmaydi,
+              // shu sababli har yangi oy avtomatik noldan boshlanadi.
+              d.settings.azimKpi = (d.settings.azimKpiHistory || [])
+                .filter((h) => h.month === thisMonth)
+                .reduce((s, h) => s + num(h.amount), 0);
               return d;
             })} />
         )}
@@ -11102,7 +11113,10 @@ function KpiEditCard({ value, history, onAdd }) {
   const [val, setVal] = useState("");
   const [reason, setReason] = useState("");
   const [showHistory, setShowHistory] = useState(false);
-  const total = (history || []).reduce((s, h) => s + num(h.amount), 0);
+  // "history"dan (barcha vaqt yozuvlaridan) qayta hisoblanmaydi — shunday
+  // qilinganida eski oylar hech qachon yopilmay, doim o'sib boruvchi umumiy
+  // summa ko'rsatilardi. "value" — AnalyticsTab'dan keladi va faqat JORIY oy
+  // bo'yicha hisoblangan.
 
   if (editing) return (
     <div style={{ background: T.s1, border: `1px solid ${T.flame}60`, borderRadius: 12, padding: "15px 17px" }}>
@@ -11128,7 +11142,7 @@ function KpiEditCard({ value, history, onAdd }) {
           </button>
         )}
       </div>
-      <div className="mo bc" style={{ fontSize: 19, fontWeight: 700, color: T.gold }} onClick={() => setEditing(true)}>{fmtSum(total || value)}</div>
+      <div className="mo bc" style={{ fontSize: 19, fontWeight: 700, color: T.gold }} onClick={() => setEditing(true)}>{fmtSum(value)}</div>
       <div onClick={() => setEditing(true)} style={{ fontSize: 10.5, color: T.muted, marginTop: 4, cursor: "pointer" }}>+ Yangi KPI qo'shish</div>
       {showHistory && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}`, display: "grid", gap: 5 }}>
