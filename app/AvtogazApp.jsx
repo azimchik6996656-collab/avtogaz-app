@@ -7,6 +7,7 @@ import {
 } from "../lib/security";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import {
   Package, Wallet, Plus, X, TrendingUp, TrendingDown, ChevronDown, Trash2,
@@ -23,7 +24,10 @@ const STORAGE_KEY = "avtogaz-v2";
 /* Yuklanish tekshiruvi uchun — sarlavhada ko'rinadi.
    Saytda shu raqam ko'rinsa, demak eng yangi kod ishlayapti. */
 const APP_VERSION = "v58";
-const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad" };
+const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad", usta_station: "Usta stansiyasi" };
+// Har bir filial /app/<branchId>/page.js orqali kiriladi — ROW_ID sifatida shu qiymat
+// ishlatiladi (Supabase'da mustaqil qator). Yangi filial qo'shilsa, shu yerga ham qo'shiladi.
+const BRANCH_LABELS = { main: "Bosh filial", filial2: "2-filial" };
 
 const UNITS = ["dona", "kg", "litr", "metr", "komplekt"];
 const SERVICE_TYPES = ["Servis", "Ustanovka", "Detailing", "Moy bo'limi"];
@@ -73,7 +77,8 @@ const emptyData = () => ({
     branches: [{ id: "main", name: "Bosh filial", openDate: "" }],
     activeBranchId: "main",
   },
-  products: [], stockIns: [], stockOuts: [], freeSales: [], cashflow: [],
+  products: [], stockIns: [], stockOuts: [], serviceUsage: [], freeSales: [], cashflow: [],
+  apprentices: [], // usta -> shogirt (necha foizi shogirtga ajratilishi) ro'yxati
   serviceCards: [], warrantyClaims: [], partners: [], partnerTx: [],
   ustaLedger: [], leads: [], leadTasks: [],
   bonusRules: [], bonusAwards: [], nasiyaDebts: [],
@@ -486,6 +491,31 @@ function reverseDebtSettlement(d, kind, id, amountSum) {
   }
 }
 
+// "Usta xizmat haqi" kassa yozuvi (Usta hisobi'dagi "Yopish" orqali yaratilgan) o'chirilsa —
+// ustaning tegishli ustaLedger yozuvlari qaytadan "to'lanmagan" holatga qaytadi. Shogirt bilan
+// bo'lingan to'lovda ikki kassa yozuvi ("usta ulushi" + "shogirt ulushi") bir-biriga
+// ustaCloseId orqali bog'langan — ikkisidan qay birini o'chirsa, IKKALASI HAM birga
+// bekor qilinadi (aks holda faqat bittasi o'chib, ikkinchisi "osilib qolgan" pul bo'lib qolardi).
+function reverseUstaClose(d, entry) {
+  if (entry.ustaLedgerIds && entry.ustaLedgerIds.length) {
+    d.ustaLedger.forEach((e) => { if (entry.ustaLedgerIds.includes(e.id)) e.paid = false; });
+  }
+  if (entry.shogirtLedgerId) {
+    d.ustaLedger = d.ustaLedger.filter((e) => e.id !== entry.shogirtLedgerId);
+  }
+  if (entry.ustaCloseId) {
+    const pair = d.cashflow.find((c) => c.ustaCloseId === entry.ustaCloseId && c.id !== entry.id);
+    if (pair) {
+      if (pair.ustaLedgerIds && pair.ustaLedgerIds.length) {
+        d.ustaLedger.forEach((e) => { if (pair.ustaLedgerIds.includes(e.id)) e.paid = false; });
+      }
+      if (pair.shogirtLedgerId) {
+        d.ustaLedger = d.ustaLedger.filter((e) => e.id !== pair.shogirtLedgerId);
+      }
+      d.cashflow = d.cashflow.filter((c) => c.id !== pair.id);
+    }
+  }
+}
 
 function partnerBalances(data) {
   return data.partners.map((p) => {
@@ -517,6 +547,14 @@ function useActionLock() {
       setTimeout(() => { locked.current = false; }, 1500);
     }
   }, []);
+}
+
+// Usta shogirt (yordamchi) bilan ishlasa — usta hisobi (Kutilayotgan jami) hech qanday
+// o'zgarishsiz, to'liq holicha ko'rinadi (usta faqat kuzatadi). Shogirt ulushi FAQAT
+// kassir ustaning hisobini "Yopish" bosgan payt — taxminiy % (odatda 20%) sifatida
+// TAKLIF qilinadi, so'ngra kassir aniq summani o'zi (ko'proq yoki kamroq) belgilaydi.
+function apprenticeFor(apprentices, ustaName) {
+  return (apprentices || []).find((a) => sameName(a.usta, ustaName)) || null;
 }
 
 function ustaPendingByName(data) {
@@ -885,7 +923,13 @@ function Modal({ title, onClose, children, wide, xwide }) {
     };
   }, [onClose]);
 
-  return (
+  // v58'dagi header/tab panelidagi "blur" effekti (backdrop-filter) endi shu elementlarni
+  // pastdagi position:fixed bolalari uchun yangi "containing block" qilib qo'yadi — natijada
+  // header ichidan ochilgan oyna (masalan HeaderMenu'dagi Import/Export) butun ekranni emas,
+  // balki faqat 54px'lik header qutisini asos qilib joylashib, "yarim ko'rinadigan" bo'lib
+  // qolardi. document.body'ga portal orqali chiqarish buni har doim, qayerdan chaqirilishidan
+  // qat'i nazar, oldini oladi.
+  return typeof document === "undefined" ? null : createPortal(
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{
       position: "fixed", inset: 0, zIndex: 200,
       background: "rgba(38,31,20,.42)",
@@ -914,10 +958,13 @@ function Modal({ title, onClose, children, wide, xwide }) {
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}><X size={17} /></button>
         </div>
-        {/* MAZMUN — faqat shu qism aylanadi (bitta scroll) */}
-        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>{children}</div>
+        {/* MAZMUN — faqat shu qism aylanadi (bitta scroll). minHeight:0 shart — aks holda
+            ichidagi katta elementlar (masalan qo'lda kattalashtirilgan textarea) flex konteynerni
+            o'zi bilan birga cho'zib, sarlavhani ekrandan chiqarib yuborishi mumkin. */}
+        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1118,7 +1165,7 @@ function JSONImportModal({ onClose, onImport }) {
         value={text} onChange={(e) => { setText(e.target.value); setError(""); }}
         placeholder="JSON matnini shu yerga joylang yoki faylni yuqoridan tanlang..."
         style={{
-          width: "100%", height: 240, padding: 12, borderRadius: 8,
+          width: "100%", height: 240, maxHeight: 420, padding: 12, borderRadius: 8,
           border: `1px solid ${error ? T.red : T.border2}`, background: T.s3, color: T.text,
           fontFamily: "monospace", fontSize: 11, resize: "vertical",
         }}
@@ -1173,7 +1220,7 @@ function StaffPinModal({ onClose }) {
     setError("");
     try {
       const authHeader = await authClient.getAuthHeader();
-      const res = await fetch("/api/staff", { headers: authHeader ? { Authorization: authHeader } : {} });
+      const res = await fetch(`/api/staff?branchId=${encodeURIComponent(authClient.branchId)}`, { headers: authHeader ? { Authorization: authHeader } : {} });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Ro'yxatni yuklab bo'lmadi");
       setStaff(json.staff || []);
@@ -1194,7 +1241,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/set-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email, pin }),
+        body: JSON.stringify({ email, pin, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Saqlanmadi");
@@ -1220,7 +1267,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/add", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email, fullName, role: newRole }),
+        body: JSON.stringify({ email, fullName, role: newRole, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Qo'shilmadi");
@@ -1242,7 +1289,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "O'chirilmadi");
@@ -1274,7 +1321,7 @@ function StaffPinModal({ onClose }) {
                 value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
               <input style={{ ...iSt, flex: 1, minWidth: 140 }} placeholder="Ism-familiyasi"
                 value={newName} onChange={(e) => setNewName(e.target.value)} />
-              <Sel value={newRole} onChange={setNewRole} options={[
+              <Sel value={newRole} onChange={(e) => setNewRole(e.target.value)} options={[
                 { value: "kassir", label: "Kassir" },
                 { value: "sklad", label: "Sklad" },
               ]} />
@@ -1337,18 +1384,27 @@ function StaffPinModal({ onClose }) {
 
 function PinChangeModal({ pins, onClose, onSave }) {
   const [rahbar, setRahbar] = useState(pins.rahbar || "");
+  const [ustaStation, setUstaStation] = useState(pins.ustaStation || "");
   const [error, setError] = useState("");
 
   function isValid4Digit(v) { return /^\d{4}$/.test(v); }
 
   function handleSave() {
     if (!isValid4Digit(rahbar)) {
-      setError("PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      setError("Rahbar PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      return;
+    }
+    if (ustaStation && !isValid4Digit(ustaStation)) {
+      setError("Stansiya PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      return;
+    }
+    if (ustaStation && ustaStation === rahbar) {
+      setError("Stansiya PIN Rahbar PIN bilan bir xil bo'lmasligi kerak.");
       return;
     }
     // Kassir/Sklad PIN'lari endi ishlatilmaydi (ular Google orqali kiradi) — shu ikkalasini
-    // eski qiymatida o'zgarmasdan qoldiramiz, faqat Rahbar PIN'ni yangilaymiz.
-    onSave({ ...pins, rahbar });
+    // eski qiymatida o'zgarmasdan qoldiramiz, faqat Rahbar va Stansiya PIN'ni yangilaymiz.
+    onSave({ ...pins, rahbar, ustaStation });
     onClose();
   }
 
@@ -1366,6 +1422,22 @@ function PinChangeModal({ pins, onClose, onSave }) {
             autoFocus onFocus={(e) => e.target.select()}
           />
         </F>
+        <F label="Usta stansiyasi PIN (umumiy — planshet uchun)">
+          <input
+            type="text" inputMode="numeric" maxLength={4} style={iSt}
+            value={ustaStation} onChange={(e) => setUstaStation(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            placeholder="Masalan: 7788"
+            onFocus={(e) => e.target.select()}
+          />
+        </F>
+      </div>
+      <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginTop: 14 }}>
+        <p style={{ fontSize: 12, color: T.muted2, lineHeight: 1.6 }}>
+          <b>Stansiya PIN</b> — servisdagi planshetga shu kod bilan kiriladi. Bir nechta usta shu
+          bitta qurilmani baham ko'rishi mumkin: karta ochish/mahsulot qo'shishda kim ekanligi
+          so'ralmaydi, faqat ish haqi yozilganda har bir usta o'zining shaxsiy kodini
+          ("Usta kodlari" bo'limidan) kiritib, shu summani o'z hisobiga biriktiradi.
+        </p>
       </div>
       <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginTop: 14 }}>
         <p style={{ fontSize: 12, color: T.muted2, lineHeight: 1.6 }}>
@@ -1402,7 +1474,7 @@ function UstaCodesModal({ codes, data, onClose, onAdd, onRemove }) {
     if (!name.trim()) { setError("Usta ismini kiriting."); return; }
     if (!/^\d{4}$/.test(code)) { setError("Kod aynan 4 ta raqamdan iborat bo'lishi kerak."); return; }
     if (codes.some((c) => c.code === code)) { setError("Bu kod allaqachon band."); return; }
-    const reserved = [data.settings.pins?.rahbar, data.settings.pins?.kassir, data.settings.pins?.sklad].filter(Boolean);
+    const reserved = [data.settings.pins?.rahbar, data.settings.pins?.kassir, data.settings.pins?.sklad, data.settings.pins?.ustaStation].filter(Boolean);
     if (reserved.includes(code)) { setError("Bu kod umumiy rol PIN kodi sifatida band."); return; }
     if (codes.some((c) => sameName(c.name, name))) { setError("Bu usta uchun kod allaqachon mavjud."); return; }
     onAdd({ name: name.trim(), code });
@@ -1692,7 +1764,56 @@ function ResetAllConfirmModal({ data, onClose, onConfirm }) {
   );
 }
 
-function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
+// Har bir filial /app/<branchId>/page.js orqali, mustaqil manzilda ochiladi (BRANCH_LABELS
+// bilan mos). Bu ro'yxat kodda qo'lda yuritiladi — yangi filial qo'shilsa (yangi papka +
+// BRANCH_LABELS yozuvi), shu yerga ham bitta qator qo'shiladi.
+const BRANCH_LINKS = [
+  { id: "main", path: "/" },
+  { id: "filial2", path: "/filial2" },
+];
+
+function BranchesModal({ currentBranchId, onClose }) {
+  return (
+    <Modal title="Filiallar" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Har bir filial — bosh tizimdan butunlay mustaqil (o'z skladi, kassasi, kartalari,
+        xodimlari). Filial almashtirish uchun quyidagi manzilga o'ting.
+      </p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {BRANCH_LINKS.map((b) => {
+          const isCurrent = b.id === currentBranchId;
+          return (
+            <div key={b.id} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              background: isCurrent ? T.flameD : T.s3, border: `1px solid ${isCurrent ? T.flame + "40" : T.border}`,
+              borderRadius: 10, padding: "11px 15px",
+            }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: isCurrent ? T.flame : T.text }}>
+                  {BRANCH_LABELS[b.id] || b.id}
+                </div>
+                <div className="mo" style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{b.path}</div>
+              </div>
+              {isCurrent ? (
+                <Badge color={T.flame}>Hozir shu yerda</Badge>
+              ) : (
+                <a href={b.path} style={{
+                  fontSize: 12, fontWeight: 700, color: T.blue, textDecoration: "none",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>O'tish →</a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 11, color: T.muted, marginTop: 14, lineHeight: 1.5 }}>
+        Yangi filial ochish uchun (o'z manzili, xodimlari va PIN kodlari bilan) dasturchiga murojaat qiling.
+      </p>
+    </Modal>
+  );
+}
+
+function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId }) {
   const [open, setOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -1862,12 +1983,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
           onRemove={(id) => patch((d) => { d.settings.partnerCodes = (d.settings.partnerCodes || []).filter((c) => c.id !== id); return d; })}
         />
       )}
-      {branchesOpen && (
-        <BranchesModal branches={data.settings.branches || []} onClose={() => setBranchesOpen(false)}
-          onAdd={(branch) => patch((d) => { d.settings.branches = d.settings.branches || []; d.settings.branches.push({ id: uid(), ...branch }); return d; })}
-          onRemove={(id) => patch((d) => { d.settings.branches = (d.settings.branches || []).filter((b) => b.id !== id); return d; })}
-        />
-      )}
+      {branchesOpen && <BranchesModal currentBranchId={branchId} onClose={() => setBranchesOpen(false)} />}
     </div>
   );
 }
@@ -2322,7 +2438,7 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
       const res = await fetch("/api/verify-2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${pending.token}` },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok) {
@@ -2426,7 +2542,7 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
 /* ═══════════════════════════════════════════════════
    LOGIN SCREEN
 ═══════════════════════════════════════════════════ */
-function LoginScreen({ authError, onSuccess }) {
+function LoginScreen({ branchId, authError, onSuccess }) {
   const [digits, setDigits] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2507,7 +2623,7 @@ function LoginScreen({ authError, onSuccess }) {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: v }),
+        body: JSON.stringify({ pin: v, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok) {
@@ -2577,9 +2693,11 @@ function LoginScreen({ authError, onSuccess }) {
         .login-side{flex:none;width:460px;display:flex;align-items:center;justify-content:center;
           padding:40px 20px;position:relative;z-index:2}
         .login-mobile-info{display:none}
+        .login-mobile-logo{display:none}
         @media(max-width:960px){
           .login-hero{display:none}
           .login-side{width:100%}
+          .login-mobile-logo{display:flex;justify-content:center;margin-bottom:20px}
           .login-mobile-info{display:flex;gap:10px;margin-bottom:18px}
         }
       `}</style>
@@ -2602,10 +2720,10 @@ function LoginScreen({ authError, onSuccess }) {
             </p>
           </div>
           <div style={{
-            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 16, padding: "14px 20px",
-            boxShadow: "0 14px 32px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.5)",
+            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 13, padding: "10px 15px",
+            boxShadow: "0 10px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
           }}>
-            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 69, width: "auto" }} />
+            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 50, width: "auto" }} />
           </div>
         </div>
 
@@ -2639,6 +2757,14 @@ function LoginScreen({ authError, onSuccess }) {
 
       <div className="login-side">
         <div style={{ width: "100%", maxWidth: 380 }}>
+          <div className="login-mobile-logo">
+            <div style={{
+              display: "inline-flex", background: "#FBFAF8", borderRadius: 12, padding: "9px 14px",
+              boxShadow: "0 10px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.5)",
+            }}>
+              <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 26, width: "auto" }} />
+            </div>
+          </div>
           <div className="login-mobile-info">
             <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${LOGIN_T.border}`, borderRadius: 14, padding: "10px 14px" }}>
               <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: LOGIN_T.text }}>
@@ -2664,6 +2790,13 @@ function LoginScreen({ authError, onSuccess }) {
                 Xush kelibsiz
               </div>
               <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: LOGIN_T.teal }}>{APP_VERSION}</div>
+              {branchId !== "main" && (
+                <div style={{
+                  display: "inline-flex", marginTop: 10, padding: "4px 12px", borderRadius: 20,
+                  background: `${LOGIN_T.flame}22`, border: `1px solid ${LOGIN_T.flame}40`,
+                  fontSize: 11, fontWeight: 700, color: LOGIN_T.flame, letterSpacing: ".03em",
+                }}>{BRANCH_LABELS[branchId] || branchId}</div>
+              )}
             </div>
 
             <div style={{ padding: "22px 30px 0" }}>
@@ -2734,7 +2867,7 @@ function LoginScreen({ authError, onSuccess }) {
                 color: LOGIN_T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
               }}>
                 <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
-                Usta / ta'minotchi / hamkor / rahbar — PIN
+                Usta / stansiya / ta'minotchi / hamkor / rahbar — PIN
                 <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
               </div>
 
@@ -2798,7 +2931,7 @@ function LoginScreen({ authError, onSuccess }) {
                 Kirish
               </button>
               <p style={{ fontSize: 10.5, color: LOGIN_T.muted, textAlign: "center", marginTop: 12, fontWeight: 600 }}>
-                4 xonali shaxsiy kod — usta, ta'minotchi yoki hamkor uchun
+                4 xonali kod — usta (shaxsiy), stansiya, ta'minotchi yoki hamkor uchun
               </p>
             </div>
           </div>
@@ -2924,16 +3057,21 @@ function PartnerPanelTab({ data, partnerId }) {
 /* ═══════════════════════════════════════════════════
    ROOT APP
 ═══════════════════════════════════════════════════ */
-const LOCAL_BACKUP_KEY = "avtogaz-v2-local-backup";
+const LOCAL_BACKUP_KEY_BASE = "avtogaz-v2-local-backup";
+// Bir xil brauzerda ikkala filial ham ochilishi mumkin (masalan Azim ikkalasini ham
+// boshqaradi) — localStorage butun saytga UMUMIY bo'lgani uchun, kalitga filial nomini
+// qo'shmasak, filial2'ni ochganda bosh filialning lokal zaxirasi noto'g'ri ishlatilib
+// qolardi (yoki aksincha).
+function localBackupKey() { return `${LOCAL_BACKUP_KEY_BASE}-${authClient.branchId}`; }
 
 function saveLocalBackup(data) {
-  try { localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({ data, savedAt: Date.now() })); }
+  try { localStorage.setItem(localBackupKey(), JSON.stringify({ data, savedAt: Date.now() })); }
   catch (e) { /* localStorage to'liq bo'lishi mumkin, jim o'tamiz */ }
 }
 
 function loadLocalBackup() {
   try {
-    const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
+    const raw = localStorage.getItem(localBackupKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed || null; // {data, savedAt} ni to'liq qaytaramiz
@@ -2944,7 +3082,12 @@ function isValidData(p) {
   return p && typeof p === "object" && Array.isArray(p.products) && Array.isArray(p.serviceCards);
 }
 
-export default function App() {
+export default function App({ branchId = "main" }) {
+  // Har bir filial (branch) — Supabase'da mustaqil qatorga ega. authClient
+  // shu qiymatni saqlab, storage/login/2FA/staff so'rovlariga qo'shib yuboradi
+  // (App() qayta chaqirilganda ham xavfsiz — shunchaki qiymatni yangilaydi).
+  authClient.setBranchId(branchId);
+
   const [data, setData] = useState(emptyData());
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error | conflict
@@ -2971,7 +3114,7 @@ export default function App() {
       try {
         const session = await authClient.getGoogleSession();
         if (session?.access_token) {
-          const res = await fetch("/api/whoami", {
+          const res = await fetch(`/api/whoami?branchId=${encodeURIComponent(authClient.branchId)}`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           const json = await res.json().catch(() => ({}));
@@ -3143,7 +3286,7 @@ export default function App() {
   const allTabs = [
     { id: "dashboard", label: "Bosh sahifa",  Icon: Zap,        roles: ["azim", "kassir"] },
     { id: "callcenter",label: "Qo'ng'iroqlar", Icon: PhoneCall,  roles: ["azim", "kassir"] },
-    { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad"] },
+    { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad", "usta_station"] },
     { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
@@ -3191,6 +3334,7 @@ export default function App() {
 
   if (!role) return (
     <LoginScreen
+      branchId={branchId}
       authError={authError}
       onSuccess={(r, name) => {
         setAuthError("");
@@ -3261,6 +3405,13 @@ export default function App() {
                 border: `1px solid ${T.teal}35`, borderRadius: 5, padding: "2px 6px",
                 letterSpacing: 0,
               }}>{APP_VERSION}</span>
+              {branchId !== "main" && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: T.flame, background: T.flameD,
+                  border: `1px solid ${T.flame}35`, borderRadius: 5, padding: "2px 6px",
+                  letterSpacing: 0, textTransform: "none",
+                }}>{BRANCH_LABELS[branchId] || branchId}</span>
+              )}
             </div>
             <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: ".1em", fontWeight: 600, marginTop: 2 }}>
               {(role === "usta" && ustaName ? ustaName.toUpperCase()
@@ -3324,7 +3475,7 @@ export default function App() {
           <div style={{ width: 1, height: 22, background: T.border }} className="hide-sm" />
 
           <HeaderMenu
-            role={role} rate={rate} patch={patch} data={data}
+            role={role} rate={rate} patch={patch} data={data} branchId={branchId}
             onImport={(p) => {
               const next = { ...emptyData(), ...p, settings: { ...emptyData().settings, ...(p.settings || {}) } };
               const actor = ustaName || supplierName || partnerId || role || "noma'lum";
@@ -4409,8 +4560,10 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   const [viewCard, setViewCard] = useState(null); // to'liq tafsilotni ko'rish uchun
   const isUsta = role === "usta";
   const isSklad = role === "sklad"; // Sklad — usta kabi ko'radi/mahsulot biriktiradi, lekin narx/foydani ko'rmaydi va yakunlay olmaydi
+  const isStation = role === "usta_station"; // Umumiy planshet — hech bir ustaga qulflanmagan, ish haqi yozilganda shaxsiy kod so'raladi
   const isReadOnly = role === "rahbar"; // Rahbar faqat kuzatadi
-  const hideFinance = isUsta || isSklad;
+  const hideFinance = isUsta || isSklad || isStation;
+  const ustaCodes = data.settings.ustaCodes || [];
 
   const allCards = data.serviceCards;
   // Usta faqat o'ziga (o'z ismiga) tegishli kartalarni ko'radi
@@ -4499,6 +4652,19 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
     patch((d) => {
       const card = d.serviceCards.find((c) => c.id === cardId);
       if (card) card.ustaFeeEntries = (card.ustaFeeEntries || []).filter((e) => e.id !== feeId);
+      return d;
+    });
+  }
+  // Stansiya rejimi — ish haqi shaxsiy PIN bilan tasdiqlangach chaqiriladi.
+  // Karta hali hech kimga biriktirilmagan bo'lsa, shu tasdiqlagan usta uning egasi bo'ladi.
+  function addFeeStation(cardId, amount, note, confirmedUstaName) {
+    patch((d) => {
+      const card = d.serviceCards.find((c) => c.id === cardId);
+      if (card) {
+        if (!card.usta) card.usta = confirmedUstaName;
+        card.ustaFeeEntries = card.ustaFeeEntries || [];
+        card.ustaFeeEntries.push({ id: uid(), amount, note, date: todayISO() });
+      }
       return d;
     });
   }
@@ -4878,46 +5044,54 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         </div>
       )}
 
-      {/* SEARCH + CLOSED */}
-      <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
-        <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
-      </div>
+      {/* SEARCH + CLOSED — stansiyada kerak emas: bu umumiy planshet joriy ish bilan shug'ullanadi,
+          butun servisning yopilgan ishlar tarixini ko'rsatib o'tirmaydi. */}
+      {!isStation && (
+        <>
+          <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+            <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
+          </div>
 
-      <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
-        <Tbl
-          empty="Yakunlangan karta yo'q"
-          cols={[
-            { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
-            { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
-            ...(!isUsta ? [
-              { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
-            ] : []),
-            { k: "carModel", h: "Mashina" },
-            { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
-            { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
-            ...(!hideFinance ? [
-              { k: "partsCost", h: "Tan narx", r: (r) => <span style={{ color: T.muted2 }}>{fmtSum(cardPartsCost(r))}</span> },
-            ] : []),
-            { k: "ustaFee", h: "Usta haqi", r: (r) => <span style={{ color: T.gold }}>{fmtSum(cardUstaFeeSum(r))}</span> },
-            ...(!hideFinance ? [
-              { k: "finalTotal", h: "Yakuniy", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(r.finalTotal)}</span> },
-              { k: "profitSum", h: "Foyda", r: (r) => <span className="mo" style={{ fontWeight: 700, color: num(r.profitSum) >= 0 ? T.teal : T.red }}>{fmtSum(r.profitSum)}</span> },
-            ] : []),
-            { k: "view", h: "", r: (r) => <button onClick={() => setViewCard(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.blue }}><Search size={13} /></button> },
-            ...(!hideFinance ? [
-              { k: "edit", h: "", r: (r) => <button onClick={() => setEditPinOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
-              { k: "del", h: "", r: (r) => <button onClick={() => deleteCard(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
-            ] : []),
-          ]}
-          rows={closedCards}
-        />
-      </Card>
+          <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
+            <div style={{ padding: "14px 18px" }}>
+            <DateGroupedList
+              empty="Yakunlangan karta yo'q"
+              amountFn={hideFinance ? null : (r) => num(r.profitSum)}
+              cols={[
+                { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
+                { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
+                ...(!isUsta ? [
+                  { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
+                ] : []),
+                { k: "carModel", h: "Mashina" },
+                { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
+                { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
+                ...(!hideFinance ? [
+                  { k: "partsCost", h: "Tan narx", r: (r) => <span style={{ color: T.muted2 }}>{fmtSum(cardPartsCost(r))}</span> },
+                ] : []),
+                { k: "ustaFee", h: "Usta haqi", r: (r) => <span style={{ color: T.gold }}>{fmtSum(cardUstaFeeSum(r))}</span> },
+                ...(!hideFinance ? [
+                  { k: "finalTotal", h: "Yakuniy", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(r.finalTotal)}</span> },
+                  { k: "profitSum", h: "Foyda", r: (r) => <span className="mo" style={{ fontWeight: 700, color: num(r.profitSum) >= 0 ? T.teal : T.red }}>{fmtSum(r.profitSum)}</span> },
+                ] : []),
+                { k: "view", h: "", r: (r) => <button onClick={() => setViewCard(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.blue }}><Search size={13} /></button> },
+                ...(!hideFinance ? [
+                  { k: "edit", h: "", r: (r) => <button onClick={() => setEditPinOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
+                  { k: "del", h: "", r: (r) => <button onClick={() => deleteCard(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
+                ] : []),
+              ]}
+              rows={closedCards}
+            />
+            </div>
+          </Card>
+        </>
+      )}
 
       {viewCard && <CardDetailModal card={viewCard} isUsta={hideFinance} onClose={() => setViewCard(null)} />}
 
-      {newOpen && <NewCardModal data={data} isUsta={isUsta} ustaName={ustaName} onClose={() => setNewOpen(false)} onSave={createCard} />}
+      {newOpen && <NewCardModal data={data} isUsta={isUsta} isStation={isStation} ustaName={ustaName} onClose={() => setNewOpen(false)} onSave={createCard} />}
       {workCard && (
         <CardWorkspace
           card={data.serviceCards.find((c) => c.id === workCard.id) || workCard}
@@ -4926,11 +5100,13 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
           rate={rate}
           saveState={saveState}
           noteSuggestions={noteSuggestions}
+          ustaCodes={ustaCodes}
           onClose={() => setWorkCard(null)}
           onAddPart={(p) => addPart(workCard.id, p)}
           onAddNewProduct={(prod, qty, useSale) => addNewProductAndPart(workCard.id, prod, qty, useSale)}
           onRemovePart={(i) => removePart(workCard.id, i)}
           onAddFee={(a, n) => addFee(workCard.id, a, n)}
+          onAddFeeStation={(a, n, u) => addFeeStation(workCard.id, a, n, u)}
           onRemoveFee={(id) => removeFee(workCard.id, id)}
           onFinalize={(fin) => closeCard(workCard.id, fin)}
           onProductRequest={(req) => sendProductRequest(workCard.id, req)}
@@ -4951,7 +5127,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   );
 }
 
-function NewCardModal({ data, isUsta, ustaName, onClose, onSave }) {
+function NewCardModal({ data, isUsta, isStation, ustaName, onClose, onSave }) {
   const ustaNames = ustaNameOptions(data);
   const [f, setF] = useState({
     date: todayISO(), plate: "", phone: "", carModel: "", usta: isUsta ? (ustaName || "") : "",
@@ -4985,6 +5161,9 @@ function NewCardModal({ data, isUsta, ustaName, onClose, onSave }) {
         <F label="Usta ismi" col="1/-1">
           {isUsta ? (
             <input style={{ ...iSt, background: T.s3, color: T.muted }} value={f.usta} disabled readOnly />
+          ) : isStation ? (
+            <input style={{ ...iSt, background: T.s3, color: T.muted }} value=""
+              placeholder="Ish haqi kiritilganda, ustaning shaxsiy kodi bilan aniqlanadi" disabled readOnly />
           ) : (
             <>
               <input style={iSt} value={f.usta} onChange={set("usta")} list="usta-list" placeholder="Usta ismi" />
@@ -5203,15 +5382,17 @@ function EditFinishedCardModal({ card, products, ustaNames, onClose, onSave }) {
   );
 }
 
-function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions, onClose, onAddPart, onAddNewProduct, onRemovePart, onAddFee, onRemoveFee, onFinalize, onProductRequest }) {
+function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions, ustaCodes, onClose, onAddPart, onAddNewProduct, onRemovePart, onAddFee, onAddFeeStation, onRemoveFee, onFinalize, onProductRequest }) {
   const isUsta = role === "usta";
   const isSklad = role === "sklad";
-  const hideFinance = isUsta || isSklad; // Sklad ham narx/foyda va yakunlashni ko'rmaydi, faqat mahsulot biriktiradi
+  const isStation = role === "usta_station";
+  const hideFinance = isUsta || isSklad || isStation; // Sklad/stansiya ham narx/foyda ko'rmaydi, faqat mahsulot/ish haqi biriktiradi
   const [productId, setProductId] = useState(products[0]?.id || "");
   const [qty, setQty] = useState(1);
   const [feeAmount, setFeeAmount] = useState("");
   const [feeNote, setFeeNote] = useState("");
   const [finalizing, setFinalizing] = useState(false);
+  const [pinConfirm, setPinConfirm] = useState(null); // {amount, note} — stansiya rejimida ish haqi tasdig'ini kutmoqda
   const [reqName, setReqName] = useState("");
   const [reqQty, setReqQty] = useState(1);
   const [reqNote, setReqNote] = useState("");
@@ -5265,7 +5446,19 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
     setAddFeeError("");
     const a = num(feeAmount);
     if (a <= 0) { setAddFeeError("Summani to'g'ri kiriting (masalan: 50000)."); return; }
+    if (isStation) {
+      // Stansiya rejimida summa darhol yozilmaydi — avval qaysi usta ekanini
+      // shaxsiy PIN kod bilan tasdiqlash kerak (StationPinConfirmModal).
+      setPinConfirm({ amount: a, note: feeNote.trim() });
+      return;
+    }
     onAddFee(a, feeNote.trim());
+    setFeeAmount(""); setFeeNote("");
+  }
+
+  function handleStationPinConfirmed(confirmedUstaName) {
+    onAddFeeStation(pinConfirm.amount, pinConfirm.note, confirmedUstaName);
+    setPinConfirm(null);
     setFeeAmount(""); setFeeNote("");
   }
 
@@ -5281,8 +5474,11 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
   }
 
   if (finalizing)
-    return <FinalizeModal card={card} partsCost={partsCost} feeSum={feeSum} rate={rate}
-      onBack={() => setFinalizing(false)} onClose={onClose} onSave={onFinalize} />;
+    return isStation
+      ? <StationFinalizeModal card={card} partsCost={partsCost} feeSum={feeSum}
+          onBack={() => setFinalizing(false)} onClose={onClose} onSave={onFinalize} />
+      : <FinalizeModal card={card} partsCost={partsCost} feeSum={feeSum} rate={rate}
+          onBack={() => setFinalizing(false)} onClose={onClose} onSave={onFinalize} />;
 
   return (
     <Modal title={`${card.plate} — ${card.carModel || ""}`} onClose={onClose} wide>
@@ -5396,7 +5592,7 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
         </div>
       )}
       {/* USTA UCHUN QO'SHIMCHA — skladda yo'q mahsulot uchun so'rov */}
-      {isUsta && (
+      {(isUsta || isStation) && (
         <div style={{ background: T.goldD, border: `1px solid ${T.gold}30`, borderRadius: 11, padding: 15, marginBottom: 14 }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.gold, marginBottom: 10 }}>
             Skladda yo'q mahsulot — Kassirga so'rov
@@ -5418,8 +5614,15 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
       {/* USTA HAQI — hamma rol uchun ochiq, lekin Detailingda ko'rinmaydi (kelishuv summasidan hisoblanadi) */}
       {card.serviceType !== "Detailing" ? (
       <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 11, padding: 15, marginBottom: 16 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted2, marginBottom: 10 }}>
-          Usta xizmat haqi
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted2 }}>
+            Usta xizmat haqi
+          </div>
+          {isStation && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: card.usta ? T.teal : T.muted }}>
+              {card.usta ? `👤 ${card.usta}` : "Hali biriktirilmagan"}
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: fees.length ? 12 : 0, flexWrap: "wrap" }}>
           <input type="number" style={{ ...iSt, flex: 1, minWidth: 110 }} placeholder="Summa"
@@ -5478,13 +5681,167 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
             Yopsangiz ham ma'lumotlar saqlanadi — keyinroq davom ettirasiz
           </p>
         </>
+      ) : isStation && card.serviceType === "Servis" ? (
+        <SaveBtn onClick={() => setFinalizing(true)} color={T.flame}>
+          <Check size={16} /> Yakunlash
+        </SaveBtn>
       ) : (
         <p style={{ fontSize: 12, color: T.muted, textAlign: "center", marginTop: 9, padding: "10px 14px", background: T.s3, borderRadius: 8 }}>
           {isSklad
             ? "Mahsulot biriktirildi. Narxlash va yakunlash uchun kartani Kassaga yuboring — Kassir/Admin yakunlaydi."
-            : "Xizmat haqingiz yozildi. Kartani yakunlash uchun Kassir/Adminga murojaat qiling."}
+            : isStation
+              ? "Bu turdagi xizmatni yakunlash uchun Kassir/Adminga murojaat qiling."
+              : "Xizmat haqingiz yozildi. Kartani yakunlash uchun Kassir/Adminga murojaat qiling."}
         </p>
       )}
+
+      {pinConfirm && (
+        <StationPinConfirmModal
+          ustaCodes={ustaCodes} amount={pinConfirm.amount}
+          plate={card.plate} carModel={card.carModel} existingUsta={card.usta}
+          onCancel={() => setPinConfirm(null)}
+          onConfirm={handleStationPinConfirmed}
+        />
+      )}
+    </Modal>
+  );
+}
+
+/* Stansiya rejimida ish haqi yozilganda — kim ekanini shaxsiy PIN kod bilan tasdiqlaydi.
+   Kod ustaCodes'dan topilsa, shu summa o'sha ustaning hisobiga biriktiriladi. */
+function StationPinConfirmModal({ ustaCodes, amount, plate, carModel, existingUsta, onCancel, onConfirm }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  function check(code) {
+    const match = (ustaCodes || []).find((u) => u.code === code);
+    if (!match) { setError("Kod topilmadi — qaytadan urinib ko'ring."); setPin(""); return; }
+    if (existingUsta && !sameName(existingUsta, match.name)) {
+      setError(`Bu karta allaqachon ${existingUsta} ustaga biriktirilgan.`);
+      setPin("");
+      return;
+    }
+    onConfirm(match.name);
+  }
+
+  function press(d) {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError("");
+    if (next.length === 4) check(next);
+  }
+
+  const keyStyle = {
+    height: 56, borderRadius: 13, background: T.s2, border: `1px solid ${T.border}`,
+    fontFamily: "'Barlow Condensed',sans-serif", fontSize: 22, fontWeight: 700, cursor: "pointer",
+  };
+
+  return (
+    <Modal title="Ishni tasdiqlash" onClose={onCancel}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+        <span className="mo" style={{ fontSize: 12, fontWeight: 600, color: T.muted2, background: T.s3, borderRadius: 999, padding: "7px 16px" }}>
+          {plate} · {carModel || "—"}
+        </span>
+      </div>
+      <p style={{ fontSize: 12.5, color: T.muted, textAlign: "center", marginBottom: 14, lineHeight: 1.5 }}>
+        Bu summa PIN kodingiz bilan sizning hisobingizga yoziladi
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+        <span className="mo" style={{ fontSize: 22, fontWeight: 700, color: T.gold, background: T.goldD, borderRadius: 12, padding: "10px 20px" }}>
+          {fmtSum(amount)}
+        </span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 18 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{
+            width: 15, height: 15, borderRadius: "50%",
+            background: i < pin.length ? T.flame : "transparent",
+            border: `2px solid ${i < pin.length ? T.flame : T.border2}`,
+          }} />
+        ))}
+      </div>
+      {error && <p style={{ color: T.red, fontSize: 12, textAlign: "center", marginBottom: 10 }}>{error}</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, maxWidth: 260, margin: "0 auto" }}>
+        {digits.map((d) => (
+          <button key={d} onClick={() => press(String(d))} style={keyStyle}>{d}</button>
+        ))}
+        <div />
+        <button onClick={() => press("0")} style={keyStyle}>0</button>
+        <button onClick={() => { setPin((p) => p.slice(0, -1)); setError(""); }} style={{
+          ...keyStyle, background: "none", border: "none",
+          display: "flex", alignItems: "center", justifyContent: "center", color: T.muted,
+        }}><Delete size={20} /></button>
+      </div>
+      <p style={{ fontSize: 11, color: T.muted, textAlign: "center", marginTop: 16 }}>
+        Faqat SIZNING kodingiz — boshqa usta bu ishni o'ziga biriktira olmaydi.
+      </p>
+    </Modal>
+  );
+}
+
+/* Stansiya rejimida "Servis" turdagi kartani usta o'zi yakunlaydi — mahsulot (sotuv narxida)
+   + ish haqi × 1.20 (20%i xizmat ustamasi, servis foydasi). Mijozga faqat yakuniy summa
+   ko'rsatiladi, ustama alohida ajratilmaydi. */
+function StationFinalizeModal({ card, partsCost, feeSum, onBack, onClose, onSave }) {
+  const [paymentType, setPaymentType] = useState(PAYMENT_TYPES[0]);
+  const [submitted, setSubmitted] = useState(false);
+
+  const partsCostBuy = (card.parts || []).reduce((s, p) => s + num(p.qty) * num(p.costUnit ?? p.unitCost ?? 0), 0);
+  const surcharge = Math.round(feeSum * 0.2);
+  const finalTotal = Math.max(0, partsCost + feeSum + surcharge);
+  const profitSum = finalTotal - partsCostBuy - feeSum;
+
+  function save() {
+    if (submitted) return;
+    setSubmitted(true);
+    onSave({ finalTotal, ustaFee: feeSum, docFee: 0, profitSum, paymentType, hasWarranty: false, warrantyMonths: 0 });
+  }
+
+  return (
+    <Modal title={`Yakunlash — ${card.plate}`} onClose={onClose} wide>
+      <button onClick={onBack} style={{
+        background: "none", border: "none", cursor: "pointer",
+        color: T.muted, fontSize: 12, marginBottom: 14, padding: 0,
+      }}>← Orqaga (davom ettirish)</button>
+
+      <div style={{ background: T.s2, borderRadius: 12, padding: "18px 20px", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0" }}>
+          <span style={{ fontSize: 13, color: T.muted2 }}>Mahsulot jami</span>
+          <span className="mo" style={{ fontSize: 14, fontWeight: 600 }}>{fmtSum(partsCost)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0" }}>
+          <span style={{ fontSize: 13, color: T.muted2 }}>Usta ish haqi</span>
+          <span className="mo" style={{ fontSize: 14, fontWeight: 600 }}>{fmtSum(feeSum + surcharge)}</span>
+        </div>
+        <div style={{ borderTop: `2px solid ${T.border2}`, marginTop: 8, paddingTop: 14, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span className="bc" style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em", color: T.muted2 }}>Yakuniy summa</span>
+          <span className="mo" style={{ fontSize: 30, fontWeight: 800, color: T.flame }}>{fmtSum(finalTotal)}</span>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>To'lov turi</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {[PAYMENT_TYPES[0], PAYMENT_TYPES[1]].map((pt) => (
+            <button key={pt} onClick={() => setPaymentType(pt)} style={{
+              padding: "14px 16px", borderRadius: 12, cursor: "pointer", textAlign: "left",
+              border: `2px solid ${paymentType === pt ? T.flame : T.border}`,
+              background: paymentType === pt ? T.flameD : T.s1,
+              fontSize: 13, fontWeight: 700, color: T.text,
+            }}>{pt}</button>
+          ))}
+        </div>
+      </div>
+
+      <SaveBtn onClick={save} color={T.flame} disabled={submitted}>
+        <Check size={16} /> {submitted ? "Saqlanmoqda..." : "Yakunlash"}
+      </SaveBtn>
+
+      <p style={{ fontSize: 11, color: T.muted, textAlign: "center", marginTop: 12 }}>
+        Bu ma'lumot avtomatik Kassaga yoziladi.
+      </p>
     </Modal>
   );
 }
@@ -5762,6 +6119,7 @@ function WarehouseTab({ data, patch, rate, role }) {
   const isReadOnly = role === "rahbar"; // Rahbar faqat kuzatadi
   const [stockOpen, setStockOpen] = useState(false);
   const [saleOpen, setSaleOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [invOpen, setInvOpen] = useState(false);
   const [invReqOpen, setInvReqOpen] = useState(false);
   const [respondReq, setRespondReq] = useState(null);
@@ -5848,12 +6206,55 @@ function WarehouseTab({ data, patch, rate, role }) {
     });
   }
 
+  // Xizmat (servis) o'zining ehtiyoji uchun skladdan mahsulot/instrument olsa (masalan
+  // jgut, umumiy foydalaniladigan asbob) — biror mijoz kartasiga bog'lanmagani uchun
+  // avval hech qayerda qayd etilmasdi, sklad qoldig'i kamayib ketib "kamomad" chiqardi.
+  // Bu yozuv sklad qoldig'ini kamaytiradi VA sababini saqlaydi — inventarizatsiyada
+  // farq chiqmasligi uchun.
+  function addServiceUsage(entry) {
+    patch((d) => {
+      const product = d.products.find((p) => p.id === entry.productId);
+      if (!product) return d;
+      const qty = Math.min(num(entry.qty), num(product.qty));
+      product.qty = Math.max(0, num(product.qty) - qty);
+      d.serviceUsage = d.serviceUsage || [];
+      d.serviceUsage.unshift({
+        id: uid(), date: todayISO(), productId: product.id, productName: product.name,
+        qty, unit: product.unit, costSum: num(product.costSum) * qty,
+        usta: (entry.usta || "").trim(), note: (entry.note || "").trim(),
+      });
+      return d;
+    });
+  }
+
   function saveEdit(prod, log) {
     patch((d) => {
       d.editLog = d.editLog || [];
       d.editLog.push({ id: uid(), date: todayISO(), ...log });
       const idx = d.products.findIndex((p) => p.id === prod.id);
       if (idx >= 0) d.products[idx] = prod;
+      return d;
+    });
+  }
+
+  // Kirim yozuvini tahrirlash — xato kiritilgan miqdor/summa uchun. Miqdor o'zgarsa,
+  // farqi mahsulot qoldig'iga ham qo'shiladi/ayiriladi (aks holda sklad qoldig'i
+  // kirim tarixidan uzilib qolar edi). To'langan summa bu yerda tahrirlanmaydi —
+  // u kassa yozuvlari bilan bog'liq, xato to'lovni "Kassa" bo'limidan o'chirish kerak.
+  function saveStockInEdit(stockInId, updated, reason) {
+    patch((d) => {
+      const idx = (d.stockIns || []).findIndex((s) => s.id === stockInId);
+      if (idx < 0) return d;
+      const before = d.stockIns[idx];
+      const qtyDelta = num(updated.qty) - num(before.qty);
+      if (qtyDelta !== 0) {
+        const product = d.products.find((p) => p.id === before.productId);
+        if (product) product.qty = Math.max(0, num(product.qty) + qtyDelta);
+      }
+      const after = { ...before, ...updated };
+      d.stockIns[idx] = after;
+      d.editLog = d.editLog || [];
+      d.editLog.push({ id: uid(), date: todayISO(), before, after, reason, user: "Kassir" });
       return d;
     });
   }
@@ -5899,6 +6300,7 @@ function WarehouseTab({ data, patch, rate, role }) {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {!isReadOnly && <Btn variant="ghost" onClick={() => setSaleOpen(true)}><ShoppingCart size={14} /> Ulgurji savdo</Btn>}
+          {!isReadOnly && <Btn variant="ghost" onClick={() => setUsageOpen(true)}><Wrench size={14} /> Xizmat ehtiyoji uchun chiqarish</Btn>}
           {role === "azim" && (
             <Btn variant="gold" onClick={() => setInvReqOpen(true)}><Calendar size={14} /> Inventarizatsiya so'rovi (kassirga)</Btn>
           )}
@@ -6020,6 +6422,7 @@ function WarehouseTab({ data, patch, rate, role }) {
                     const d = num(r.totalSum) - num(r.paidSum);
                     return <span style={{ color: d > 0 ? T.red : T.teal, fontWeight: 600 }}>{fmtSum(d)}</span>;
                   } },
+                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} rate={rate} onSave={saveStockInEdit} /> },
               ]}
               rows={data.stockIns}
             />
@@ -6048,8 +6451,30 @@ function WarehouseTab({ data, patch, rate, role }) {
         </div>
       )}
 
+      {(data.serviceUsage || []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Card title={`Chiqim tarixi — Xizmat ehtiyoji (${data.serviceUsage.length})`} pad={false}>
+            <div style={{ padding: "14px 18px" }}>
+              <DateGroupedList
+                empty="Chiqim yo'q"
+                amountFn={(r) => -num(r.costSum)}
+                cols={[
+                  { k: "productName", h: "Mahsulot" },
+                  { k: "qty", h: "Miqdor", r: (r) => <span className="mo">{r.qty} {r.unit}</span> },
+                  { k: "usta", h: "Kim oldi", r: (r) => r.usta || "—" },
+                  { k: "costSum", h: "Qiymati", r: (r) => <span style={{ color: T.gold, fontWeight: 600 }}>{fmtSum(r.costSum)}</span> },
+                  { k: "note", h: "Sabab", r: (r) => <span style={{ color: T.muted, fontSize: 12 }}>{r.note || "—"}</span> },
+                ]}
+                rows={data.serviceUsage}
+              />
+            </div>
+          </Card>
+        </div>
+      )}
+
       {stockOpen && <StockInModal data={data} rate={rate} onClose={() => setStockOpen(false)} onSave={(e) => { addStock(e); setStockOpen(false); }} />}
       {saleOpen && <FreeSaleModal products={data.products} data={data} rate={rate} onClose={() => setSaleOpen(false)} onSave={(s) => { addFreeSale(s); setSaleOpen(false); }} />}
+      {usageOpen && <ServiceUsageModal products={data.products} ustaNames={ustaNameOptions(data)} onClose={() => setUsageOpen(false)} onSave={(e) => { addServiceUsage(e); setUsageOpen(false); }} />}
       {invReqOpen && (
         <InventoryScheduleModal onClose={() => setInvReqOpen(false)}
           onSave={(date, note) => { scheduleInventory(date, note); setInvReqOpen(false); }} />
@@ -6274,6 +6699,98 @@ function EditProductModal({ item, onClose, onSave }) {
   );
 }
 
+function PinGuardEditStockIn({ item, rate, onSave }) {
+  const [pinOpen, setPinOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setPinOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 4 }}>
+        <Pencil size={13} />
+      </button>
+      {pinOpen && <SimplePinModal onClose={() => setPinOpen(false)} onSuccess={() => { setPinOpen(false); setEditOpen(true); }} />}
+      {editOpen && <EditStockInModal item={item} rate={rate} onClose={() => setEditOpen(false)} onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }} />}
+    </>
+  );
+}
+
+function EditStockInModal({ item, rate, onClose, onSave }) {
+  const [currency, setCurrency] = useState(item.currency || "SUM");
+  const [qty, setQty] = useState(String(item.qty));
+  // Maydonlar tanlangan valyutada ko'rsatiladi (USD bo'lsa — dollarda). Boshlang'ich qiymat
+  // yozuv qaysi valyutada kiritilgan bo'lsa, shundan olinadi.
+  const [unitCost, setUnitCost] = useState(String(
+    (item.currency === "USD" ? item.unitCostOriginal : item.unitCostSum) || ""
+  ));
+  const [totalAmt, setTotalAmt] = useState(String(
+    (item.currency === "USD" ? item.totalOriginal : item.totalSum) || ""
+  ));
+  const [supplier, setSupplier] = useState(item.supplier || "");
+  const [reason, setReason] = useState("");
+
+  function handleQtyOrUnit(nextQty, nextUnitCost) {
+    setQty(nextQty);
+    setUnitCost(nextUnitCost);
+    const q = num(nextQty), u = num(nextUnitCost);
+    if (q > 0 && u > 0) setTotalAmt(String(Math.round(q * u * 100) / 100));
+  }
+
+  function handleCurrency(next) {
+    // Valyuta almashtirilganda maydonlarni bo'sh qilamiz — SUM<->USD orasida noto'g'ri
+    // (eski kursdagi) raqamni qoldirib, chalkashtirib yubormaslik uchun.
+    setCurrency(next);
+    setUnitCost("");
+    setTotalAmt("");
+  }
+
+  return (
+    <Modal title={`Kirimni tahrirlash — ${item.productName}`} onClose={onClose}>
+      <F label="Valyuta" col="1/-1">
+        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}` }}>
+          {[["SUM", "So'm"], ["USD", "Dollar"]].map(([id, l]) => (
+            <button key={id} onClick={() => handleCurrency(id)} type="button" style={{
+              flex: 1, padding: "9px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+              background: currency === id ? T.flame : "transparent", color: currency === id ? "#fff" : T.muted,
+            }}>{l}</button>
+          ))}
+        </div>
+      </F>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+        <F label={`Miqdor (${item.unit})`}>
+          <input type="number" style={iSt} value={qty} onChange={(e) => handleQtyOrUnit(e.target.value, unitCost)} />
+        </F>
+        <F label={`Birlik narxi (${currency === "USD" ? "$" : "so'm"})`}>
+          <input type="number" style={iSt} value={unitCost} onChange={(e) => handleQtyOrUnit(qty, e.target.value)} />
+        </F>
+        <F label={`Jami summa (${currency === "USD" ? "$" : "so'm"})`} col="1/-1">
+          <input type="number" style={iSt} value={totalAmt} onChange={(e) => setTotalAmt(e.target.value)} />
+        </F>
+        {currency === "USD" && num(totalAmt) > 0 && (
+          <p style={{ fontSize: 12, color: T.muted, gridColumn: "1/-1", marginTop: -6 }}>
+            ≈ {fmtSum(toSum(num(totalAmt), "USD", rate))} so'm (joriy kurs {fmtSum(rate)})
+          </p>
+        )}
+        <F label="Ta'minotchi" col="1/-1">
+          <input style={iSt} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+        </F>
+        <F label="Sabab *" col="1/-1">
+          <input style={iSt} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Xato kiritilgan summa tuzatildi..." />
+        </F>
+      </div>
+      <p style={{ fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
+        Miqdor o'zgartirilsa, farqi sklad qoldig'iga qo'shiladi/ayiriladi. To'langan summa bu yerdan
+        o'zgartirilmaydi — agar noto'g'ri to'lov kiritilgan bo'lsa, uni Kassa bo'limidan o'chiring.
+      </p>
+      <SaveBtn disabled={!reason.trim() || !num(qty) || !num(totalAmt)} onClick={() => onSave({
+        qty: num(qty), supplier: supplier.trim(), currency,
+        unitCostSum: toSum(num(unitCost), currency, rate),
+        totalSum: toSum(num(totalAmt), currency, rate),
+        unitCostOriginal: currency === "USD" ? num(unitCost) : undefined,
+        totalOriginal: currency === "USD" ? num(totalAmt) : undefined,
+      }, reason)}>Saqlash</SaveBtn>
+    </Modal>
+  );
+}
+
 function StockInModal({ data, rate, onClose, onSave }) {
   const [mode, setMode] = useState("existing");
   const [sourceType, setSourceType] = useState("Ta'minotchi");
@@ -6445,6 +6962,55 @@ function StockInModal({ data, rate, onClose, onSave }) {
         paidOriginal: sourceType === "Ta'minotchi" ? num(paid) : num(effectiveUnitCost) * effectiveQty,
         sourceType, date: todayISO(),
       })}>Kirim qilish</SaveBtn>
+    </Modal>
+  );
+}
+
+function ServiceUsageModal({ products, ustaNames, onClose, onSave }) {
+  const [productId, setProductId] = useState(products[0]?.id || "");
+  const [qty, setQty] = useState(1);
+  const [usta, setUsta] = useState("");
+  const [note, setNote] = useState("");
+
+  const product = products.find((p) => p.id === productId);
+  const q = num(qty);
+  const overStock = product && q > num(product.qty);
+  const canSave = product && q > 0 && !overStock;
+
+  return (
+    <Modal title="Xizmat ehtiyoji uchun chiqarish" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+        Mijoz kartasiga emas, servisning o'z ehtiyojiga (masalan umumiy foydalaniladigan
+        jgut, asbob) ketgan mahsulot — shu orqali sklad qoldig'i to'g'ri kamayadi va
+        inventarizatsiyada kamomad chiqmaydi.
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Mahsulot / instrument">
+          {products.length ? (
+            <SearchSelect value={productId} onChange={setProductId} placeholder="Mahsulot nomini yozing..."
+              options={products.map((p) => ({ value: p.id, label: p.name, sub: `${p.qty} ${p.unit}` }))} />
+          ) : (
+            <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
+          )}
+        </F>
+        <F label={`Miqdor${product ? ` (${product.unit}, qoldiq: ${product.qty})` : ""}`}>
+          <input type="number" style={iSt} value={qty} onChange={(e) => setQty(e.target.value)} />
+        </F>
+        <F label="Kim oldi (ixtiyoriy)">
+          <input style={iSt} value={usta} onChange={(e) => setUsta(e.target.value)} placeholder="Usta ismi"
+            list="usage-usta-list" />
+          <datalist id="usage-usta-list">
+            {ustaNames.map((n) => <option key={n} value={n} />)}
+          </datalist>
+        </F>
+        <F label="Sababi / izoh">
+          <input style={iSt} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Masalan: umumiy jgut, sexda ishlatildi" />
+        </F>
+      </div>
+      {overStock && <p style={{ color: T.red, fontSize: 12, marginTop: 10 }}>Skladda yetarli emas — bor-yo'g'i {product.qty} {product.unit}.</p>}
+      <SaveBtn disabled={!canSave} onClick={() => onSave({ productId, qty: q, usta, note })}>
+        Chiqarish
+      </SaveBtn>
     </Modal>
   );
 }
@@ -6891,12 +7457,16 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                       // maydoniga qaytamiz, aks holda bunday eski yozuvlar hech qachon
                       // qarzni to'g'ri qaytarolmaydi.
                       const settleId = r.debtSettleId || (r.debtSettleKind === "supplier" ? r.supplier : undefined);
+                      const isUstaClose = r.category === "Usta xizmat haqi" && (r.ustaLedgerIds?.length || r.ustaCloseId);
                       const msg = r.debtSettleKind
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${settleId || ""}") ham shu summaga qaytariladi.`
+                        : isUstaClose
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — usta hisobini yopish yozuvi. O'chirilganda ustaning (va shogirt bo'lgan bo'lsa, uning ham) hisobi qaytadan "to'lanmagan" holatga qaytadi.`
                         : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
                       if (!(await askConfirm(msg))) return;
                       patch((d) => {
                         if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, settleId, num(r.amountSum));
+                        if (isUstaClose) reverseUstaClose(d, r);
                         d.cashflow = d.cashflow.filter((x) => x.id !== r.id);
                         return d;
                       });
@@ -7812,6 +8382,8 @@ function DailyReport({ data, onClose }) {
 /* ─── USTA HISOB-KITOBI TAB ─── */
 function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const [addContractedOpen, setAddContractedOpen] = useState(false);
+  const [addApprenticeOpen, setAddApprenticeOpen] = useState(false);
+  const [closeSplitGroup, setCloseSplitGroup] = useState(null);
   const isSelf = !canManage; // usta o'zi kirgan — faqat o'ziga tegishlisini ko'radi
   const pendingByName = isSelf
     ? ustaPendingByName(data).filter((u) => sameName(u.usta, ustaName))
@@ -7829,13 +8401,60 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const closeGroupLock = useRef(false);
   function closeGroup(g) {
     if (closeGroupLock.current) return;
+    // Shogirti bor usta bo'lsa — to'g'ridan-to'g'ri yopmasdan, kassirga shogirt ulushini
+    // ko'rsatib tasdiqlash oynasini ochamiz (u xohlagancha o'zgartirishi mumkin).
+    const appr = apprenticeFor(apprentices, g.usta);
+    if (appr) { setCloseSplitGroup(g); return; }
     closeGroupLock.current = true;
     setTimeout(() => { closeGroupLock.current = false; }, 1500);
     patch((d) => {
       d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
-      d.cashflow.unshift({ id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM", amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate, note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)` });
+      d.cashflow.unshift({
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate,
+        note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`,
+        ustaLedgerIds: g.ids,
+      });
       return d;
     });
+  }
+
+  // Kassir shogirt ulushini tasdiqlagach — ustaning hisobi yopiladi, LEKIN pul ikkiga
+  // bo'lib kassadan chiqadi: qolgan qism ustaga, ajratilgan qism shogirtga. Shogirt
+  // tomoni darhol "to'langan" deb yoziladi — bu faqat hisobot uchun (usta shogirtga
+  // qancha berganini ko'rishi uchun), shogirtning o'zi uchun alohida kutish/yopish yo'q.
+  function confirmCloseWithSplit(g, shogirtName, shogirtAmount) {
+    patch((d) => {
+      d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
+      const amt = Math.max(0, Math.min(num(shogirtAmount), g.amountSum));
+      const ustaAmt = g.amountSum - amt;
+      const label = g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`;
+      // ustaCloseId ikkala yozuvni ("usta ulushi" + "shogirt ulushi") bir-biriga bog'laydi —
+      // biri o'chirilsa, ikkinchisi ham avtomatik o'chadi va usta hisobi qaytadan
+      // "to'lanmagan" holatga qaytadi (Kassadagi oddiy o'chirish tugmasi orqali).
+      const closeId = uid();
+      const shogirtLedgerId = amt > 0 ? uid() : undefined;
+      d.cashflow.unshift({
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        amount: ustaAmt, amountSum: ustaAmt, amountUsd: ustaAmt / rate,
+        note: amt > 0 ? `${label} — shogirt (${shogirtName}) uchun ${fmtSum(amt)} ajratildi` : label,
+        ustaLedgerIds: g.ids, ustaCloseId: closeId,
+      });
+      if (amt > 0) {
+        d.cashflow.unshift({
+          id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+          amount: amt, amountSum: amt, amountUsd: amt / rate,
+          note: `${shogirtName} — ${g.usta} shogirt ulushi`,
+          ustaCloseId: closeId, shogirtLedgerId,
+        });
+        d.ustaLedger.unshift({
+          id: shogirtLedgerId, date: todayISO(), usta: shogirtName, amountSum: amt, paid: true,
+          shogirtSourceUsta: g.usta, note: `${g.usta} shogirt ulushi`,
+        });
+      }
+      return d;
+    });
+    setCloseSplitGroup(null);
   }
 
   function addContractedMaster(name) {
@@ -7851,6 +8470,32 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   function removeContractedMaster(id) {
     patch((d) => { d.contractedMasters = (d.contractedMasters || []).filter((m) => m.id !== id); return d; });
   }
+
+  const apprentices = data.apprentices || [];
+  function addApprentice(usta, shogirt, percent) {
+    patch((d) => {
+      d.apprentices = d.apprentices || [];
+      // Har bir ustaga bitta shogirt — eskisi bo'lsa almashtiramiz (chalkashmasin)
+      d.apprentices = d.apprentices.filter((a) => !sameName(a.usta, usta));
+      d.apprentices.push({ id: uid(), usta, shogirt, percent: num(percent) || 20 });
+      return d;
+    });
+  }
+  function removeApprentice(id) {
+    patch((d) => { d.apprentices = (d.apprentices || []).filter((a) => a.id !== id); return d; });
+  }
+
+  // Har bir usta o'z shogirtiga jami qancha berganini (kassir har yopishda tasdiqlagan
+  // summalar bo'yicha) ko'radi
+  const shogirtTotals = {};
+  data.ustaLedger.filter((e) => e.shogirtSourceUsta).forEach((e) => {
+    const key = e.shogirtSourceUsta + "→" + e.usta;
+    if (!shogirtTotals[key]) shogirtTotals[key] = { usta: e.shogirtSourceUsta, shogirt: e.usta, total: 0 };
+    shogirtTotals[key].total += num(e.amountSum);
+  });
+  const shogirtTotalsList = Object.values(shogirtTotals)
+    .filter((s) => !isSelf || sameName(s.usta, ustaName))
+    .sort((a, b) => b.total - a.total);
 
   // shu ustalarning bu oyda servisga qo'shgan foydasi (bonus)
   const contractedBonusThisMonth = data.serviceCards
@@ -7895,6 +8540,53 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
                 ))}
               </div>
             )}
+          </Card>
+        </div>
+      )}
+
+      {canManage && (
+        <div style={{ marginBottom: 16 }}>
+          <Card title="Shogirtlar"
+            action={<Btn size="sm" onClick={() => setAddApprenticeOpen(true)}><Plus size={12} /> Qo'shish</Btn>}>
+            <p style={{ fontSize: 12, color: T.muted, marginBottom: apprentices.length ? 12 : 0 }}>
+              Usta shogirt bilan ishlasa — ustaning hisobi ("Kutilayotgan jami") to'liq ko'rinishda
+              qoladi, usta faqat kuzatadi. Kassir shu ustani "Yopish" bosganda, belgilangan foiz
+              (odatda 20%) shogirt ulushi sifatida taklif etiladi — kassir aniq summani o'zi
+              (kamroq yoki ko'proq) belgilab, ikkalasiga alohida to'laydi.
+            </p>
+            {apprentices.length > 0 && (
+              <div style={{ display: "grid", gap: 8 }}>
+                {apprentices.map((a) => (
+                  <div key={a.id} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    background: T.s3, borderRadius: 10, padding: "9px 13px",
+                  }}>
+                    <span style={{ fontSize: 12.5 }}>
+                      <b>{a.usta}</b> <span style={{ color: T.muted }}>→</span> <b>{a.shogirt}</b>
+                      <span style={{ color: T.gold, marginLeft: 8 }}>({a.percent}%)</span>
+                    </span>
+                    <button onClick={() => removeApprentice(a.id)} style={{
+                      background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 2, display: "flex",
+                    }}><X size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {shogirtTotalsList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Card title="Shogirt ulushlari (jami ajratilgan)" pad={false}>
+            <Tbl
+              cols={[
+                { k: "usta", h: "Usta", r: (r) => <span style={{ fontWeight: 600 }}>{r.usta}</span> },
+                { k: "shogirt", h: "Shogirt", r: (r) => r.shogirt },
+                { k: "total", h: "Jami ajratilgan", r: (r) => <span style={{ color: T.gold, fontWeight: 700 }}>{fmtSum(r.total)}</span> },
+              ]}
+              rows={shogirtTotalsList}
+            />
           </Card>
         </div>
       )}
@@ -7949,7 +8641,72 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
           onClose={() => setAddContractedOpen(false)}
           onSave={(name) => { addContractedMaster(name); setAddContractedOpen(false); }} />
       )}
+      {addApprenticeOpen && (
+        <AddApprenticeModal ustaNames={ustaNameOptions(data)}
+          onClose={() => setAddApprenticeOpen(false)}
+          onSave={(usta, shogirt, percent) => { addApprentice(usta, shogirt, percent); setAddApprenticeOpen(false); }} />
+      )}
+      {closeSplitGroup && (
+        <CloseUstaWithApprenticeModal group={closeSplitGroup} apprentice={apprenticeFor(apprentices, closeSplitGroup.usta)}
+          onClose={() => setCloseSplitGroup(null)}
+          onConfirm={(shogirtAmount) => confirmCloseWithSplit(closeSplitGroup, apprenticeFor(apprentices, closeSplitGroup.usta).shogirt, shogirtAmount)} />
+      )}
     </div>
+  );
+}
+
+function CloseUstaWithApprenticeModal({ group, apprentice, onClose, onConfirm }) {
+  const suggested = Math.round(num(group.amountSum) * (num(apprentice.percent) || 20) / 100);
+  const [shogirtAmount, setShogirtAmount] = useState(String(suggested));
+  const ustaAmount = Math.max(0, num(group.amountSum) - num(shogirtAmount));
+  return (
+    <Modal title={`${group.usta} — hisobni yopish`} onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Jami hisob: <b className="mo">{fmtSum(group.amountSum)}</b>. Shogirt (<b>{apprentice.shogirt}</b>)
+        ulushi taklif etilgan {apprentice.percent}% — xohlasangiz o'zgartiring.
+      </p>
+      <F label={`Shogirt (${apprentice.shogirt}) ulushi`}>
+        <input type="number" style={iSt} value={shogirtAmount} onChange={(e) => setShogirtAmount(e.target.value)} autoFocus />
+      </F>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 2px 0", fontSize: 13 }}>
+        <span style={{ color: T.muted }}>{group.usta}ga qoladi</span>
+        <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{fmtSum(ustaAmount)}</span>
+      </div>
+      <SaveBtn color={T.teal} onClick={() => onConfirm(num(shogirtAmount))}>
+        <Check size={15} /> Tasdiqlash va yopish
+      </SaveBtn>
+    </Modal>
+  );
+}
+
+function AddApprenticeModal({ ustaNames, onClose, onSave }) {
+  const [usta, setUsta] = useState("");
+  const [shogirt, setShogirt] = useState("");
+  const [percent, setPercent] = useState(20);
+  return (
+    <Modal title="Shogirt qo'shish" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
+        Bu ustaning xizmat haqidan belgilangan foizi endi avtomatik shogirtga ajratiladi
+        (usta karta yakunlaganda). Har bir ustaga bitta shogirt biriktirish mumkin.
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Usta ismi">
+          <input style={iSt} value={usta} onChange={(e) => setUsta(e.target.value)}
+            list="apprentice-usta-list" placeholder="Masalan: Umarxon" autoFocus />
+          <datalist id="apprentice-usta-list">{ustaNames.map((n) => <option key={n} value={n} />)}</datalist>
+        </F>
+        <F label="Shogirt ismi">
+          <input style={iSt} value={shogirt} onChange={(e) => setShogirt(e.target.value)} placeholder="Masalan: Sardor" />
+        </F>
+        <F label="Shogirt ulushi (%)">
+          <input type="number" style={iSt} value={percent} onChange={(e) => setPercent(e.target.value)} min={1} max={100} />
+        </F>
+      </div>
+      <SaveBtn disabled={!usta.trim() || !shogirt.trim() || !num(percent)} color={T.purple}
+        onClick={() => onSave(usta.trim(), shogirt.trim(), num(percent))}>
+        <Plus size={15} /> Qo'shish
+      </SaveBtn>
+    </Modal>
   );
 }
 
@@ -8544,16 +9301,6 @@ function GiveProductModal({ partner, products, data, onClose, onSave }) {
    XODIMLAR TAB — erkin lavozim, moslashuvchan oylik
 ═══════════════════════════════════════════════════ */
 function currentMonthKey() { return todayISO().slice(0, 7); }
-
-// KPI davri — oddiy taqvim oyi emas, 27-kundan 26-kungacha (keyingi oy).
-// 27-avgust — 26-sentyabr → bitta davr, "2026-08" deb belgilanadi.
-// Misol: 5-sentyabr kiritilsa ham, hali 27-sentyabrga yetmagani uchun "2026-08" davriga tushadi.
-function kpiPeriodKey(dateStr) {
-  const d = dateStr ? new Date(dateStr) : new Date();
-  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
-  const periodStart = day >= 27 ? new Date(y, m, 1) : new Date(y, m - 1, 1);
-  return `${periodStart.getFullYear()}-${String(periodStart.getMonth() + 1).padStart(2, "0")}`;
-}
 
 function EmployeesTab({ data, patch, rate }) {
   const runLocked = useActionLock();
@@ -9577,13 +10324,10 @@ function RahbarPanelTab({ data, patch, rate }) {
 
       {(() => {
         const d = new Date();
-        // KPI davri har doim 26-kunda tugaydi (27-kundan 26-kungacha tsikl).
-        // Shuning uchun eslatma kalendar oyi oxiriga emas, aynan shu 26-kunga
-        // yaqinlashganda (22–26-kunlar) chiqishi kerak — davr tugashidan oldin,
-        // davr boshlanganidan keyin emas.
-        const isPeriodEnd = d.getDate() >= 22 && d.getDate() <= 26;
-        const hasKpiThisMonth = (data.settings.azimKpiHistory || []).some((h) => h.month === kpiPeriodKey());
-        if (!isPeriodEnd || hasKpiThisMonth) return null;
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        const isMonthEnd = d.getDate() >= lastDay - 4; // oxirgi 5 kun
+        const hasKpiThisMonth = (data.settings.azimKpiHistory || []).some((h) => h.month === currentMonthKey());
+        if (!isMonthEnd || hasKpiThisMonth) return null;
         return (
           <div style={{ background: T.purpleD, border: `1px solid ${T.purple}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12.5, color: T.purple }}>
             📌 Oy yakunlanmoqda — Azim Avazovich uchun bu oyga hali KPI kiritilmagan. "Analitika" bo'limida kiritish mumkin.
@@ -9879,12 +10623,7 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
   const totalRevenue = sumF(cards, "finalTotal");
   const totalProfit = sumF(cards, "profitSum");
   const totalProductProfit = productProfitReport(data).reduce((s, r) => s + r.profit, 0);
-  // Saqlangan (data.settings.azimKpi) qiymatga tayanmaymiz — u faqat yangi KPI
-  // qo'shilganda yangilanardi va davr almashganda (masalan 27-kun kelganda) eski
-  // qolib ketardi. Endi har doim JORIY davr bo'yicha jonli hisoblanadi.
-  const azimKpi = (data.settings.azimKpiHistory || [])
-    .filter((h) => h.month === kpiPeriodKey())
-    .reduce((s, h) => s + num(h.amount), 0);
+  const azimKpi = num(data.settings.azimKpi);
 
   // KPI kartochkalar bosilganda ochiladigan tafsilot ro'yxatlari — eng katta
   // summadan boshlab, shu raqam qaysi yozuvlardan yig'ilganini ko'rsatadi.
@@ -9992,12 +10731,8 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
           <KpiEditCard value={azimKpi} history={data.settings.azimKpiHistory}
             onAdd={(amount, reason) => patch((d) => {
               d.settings.azimKpiHistory = d.settings.azimKpiHistory || [];
-              d.settings.azimKpiHistory.push({ id: uid(), month: kpiPeriodKey(), amount, reason, date: todayISO() });
-              // Faqat JORIY davr uchun yig'indi — o'tgan davrlar bu yerga qo'shilmaydi,
-              // shu sababli har yangi davr (27-kundan) avtomatik noldan boshlanadi.
-              d.settings.azimKpi = (d.settings.azimKpiHistory || [])
-                .filter((h) => h.month === kpiPeriodKey())
-                .reduce((s, h) => s + num(h.amount), 0);
+              d.settings.azimKpiHistory.push({ id: uid(), month: (new Date()).toISOString().slice(0, 7), amount, reason, date: todayISO() });
+              d.settings.azimKpi = (d.settings.azimKpiHistory || []).reduce((s, h) => s + num(h.amount), 0);
               return d;
             })} />
         )}

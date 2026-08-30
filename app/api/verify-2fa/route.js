@@ -47,9 +47,12 @@ function recordSuccess(ip) {
  */
 export async function POST(request) {
   try {
+    const body = await request.json().catch(() => ({}));
+    const branchId = String(body?.branchId || "main");
+
     const authHeader = request.headers.get("authorization") || "";
     const googleToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const auth = await verifyGoogleStaff(googleToken);
+    const auth = await verifyGoogleStaff(googleToken, branchId);
     if (!auth.ok) return Response.json({ ok: false, error: auth.error }, { status: auth.status });
 
     if (!auth.pinHash) {
@@ -57,7 +60,6 @@ export async function POST(request) {
       return Response.json({ ok: false, error: "Bu xodim uchun PIN o'rnatilmagan" }, { status: 400 });
     }
 
-    const body = await request.json().catch(() => ({}));
     const pin = String(body?.pin || "");
     if (!pin) return Response.json({ ok: false, error: "PIN kerak" }, { status: 400 });
 
@@ -78,7 +80,7 @@ export async function POST(request) {
     }
 
     recordSuccess(ip);
-    const token = issueSession({ role: auth.role, name: auth.fullName || null });
+    const token = issueSession({ role: auth.role, name: auth.fullName || null, branchId });
     return Response.json({ ok: true, role: auth.role, name: auth.fullName || null, token });
   } catch (e) {
     return Response.json({ ok: false, error: String(e.message || e) }, { status: 500 });

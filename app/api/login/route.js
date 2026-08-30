@@ -4,7 +4,6 @@ import { issueSession } from "../../../lib/pinSession";
 
 export const dynamic = "force-dynamic";
 
-const ROW_ID = "main";
 const STORAGE_KEY = "avtogaz-v2";
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000; // 15 daqiqa
@@ -46,9 +45,13 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const pin = String(body?.pin || "");
+    const branchId = String(body?.branchId || "main");
     if (!pin) return Response.json({ ok: false, error: "PIN kerak" }, { status: 400 });
 
-    const ip = getIp(request);
+    // Filial bo'yicha alohida — usta/ta'minotchi/hamkor/rahbar kodlari faqat
+    // shu IP + FILIAL doirasida hisoblanadi (bitta filialda ko'p xato boshqa
+    // filialdagi kirishga to'sqinlik qilmasin).
+    const ip = getIp(request) + "|" + branchId;
     const lo = checkLockout(ip);
     if (lo.locked) {
       const remainMin = Math.max(1, Math.ceil((lo.until - Date.now()) / 60000));
@@ -59,7 +62,7 @@ export async function POST(request) {
     }
 
     const supabase = serverClient();
-    const { data, error } = await supabase.from("app_data").select("data").eq("id", ROW_ID).single();
+    const { data, error } = await supabase.from("app_data").select("data").eq("id", branchId).single();
     if (error && error.code !== "PGRST116") throw error;
 
     const bag = data?.data || {};
@@ -69,27 +72,32 @@ export async function POST(request) {
     const supplierCodes = settings.supplierCodes || [];
     const partnerCodes = settings.partnerCodes || [];
     const rahbarPin = settings.pins?.rahbar;
+    const stationPin = settings.pins?.ustaStation;
 
     if (rahbarPin && (await pinsMatch(pin, rahbarPin))) {
       recordSuccess(ip);
-      return Response.json({ ok: true, role: "rahbar", token: issueSession({ role: "rahbar" }) });
+      return Response.json({ ok: true, role: "rahbar", token: issueSession({ role: "rahbar", branchId }) });
+    }
+    if (stationPin && (await pinsMatch(pin, stationPin))) {
+      recordSuccess(ip);
+      return Response.json({ ok: true, role: "usta_station", token: issueSession({ role: "usta_station", branchId }) });
     }
     for (const u of ustaCodes) {
       if (u?.code && (await pinsMatch(pin, u.code))) {
         recordSuccess(ip);
-        return Response.json({ ok: true, role: "usta", name: u.name, token: issueSession({ role: "usta", name: u.name }) });
+        return Response.json({ ok: true, role: "usta", name: u.name, token: issueSession({ role: "usta", name: u.name, branchId }) });
       }
     }
     for (const s of supplierCodes) {
       if (s?.code && (await pinsMatch(pin, s.code))) {
         recordSuccess(ip);
-        return Response.json({ ok: true, role: "taminotchi", name: s.name, token: issueSession({ role: "taminotchi", name: s.name }) });
+        return Response.json({ ok: true, role: "taminotchi", name: s.name, token: issueSession({ role: "taminotchi", name: s.name, branchId }) });
       }
     }
     for (const p of partnerCodes) {
       if (p?.code && (await pinsMatch(pin, p.code))) {
         recordSuccess(ip);
-        return Response.json({ ok: true, role: "hamkor", name: p.partnerId, token: issueSession({ role: "hamkor", name: p.partnerId }) });
+        return Response.json({ ok: true, role: "hamkor", name: p.partnerId, token: issueSession({ role: "hamkor", name: p.partnerId, branchId }) });
       }
     }
 
