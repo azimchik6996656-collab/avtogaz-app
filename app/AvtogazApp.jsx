@@ -6185,20 +6185,33 @@ function QuoteTab({ data }) {
 
       <div style={{ height: 14 }} />
 
-      <Card title="Skladdan qo'shish">
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            {products.length ? (
-              <SearchSelect value={pickProductId} onChange={setPickProductId} placeholder="Mahsulot nomini yozing..."
-                options={products.map((p) => ({ value: p.id, label: p.name, sub: `${fmtSum(p.priceSum)} · qoldiq: ${p.qty} ${p.unit}` }))} />
-            ) : (
-              <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
-            )}
-          </div>
-          <Btn variant="ghost" disabled={!pickProductId} onClick={addFromSklad}><Plus size={14} /> Qo'shish</Btn>
-          <Btn variant="ghost" onClick={addManual}><Plus size={14} /> Qo'lda qo'shish</Btn>
+      <div style={{
+        background: T.s1, border: `1px solid ${T.border}`, borderRadius: 14,
+        position: "relative", overflow: "visible",
+      }}>
+        <div style={{
+          padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
+          minHeight: 46, display: "flex", alignItems: "center",
+          background: `linear-gradient(180deg,${T.s2},${T.s3})`,
+          borderRadius: "14px 14px 0 0",
+        }}>
+          <span className="bc" style={{ fontSize: 14.5, fontWeight: 700 }}>Skladdan qo'shish</span>
         </div>
-      </Card>
+        <div style={{ padding: "16px 18px", position: "relative", overflow: "visible" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ flex: 1, minWidth: 220, position: "relative" }}>
+              {products.length ? (
+                <SearchSelect value={pickProductId} onChange={setPickProductId} placeholder="Mahsulot nomini yozing..."
+                  options={products.map((p) => ({ value: p.id, label: p.name, sub: `${fmtSum(p.priceSum)} · qoldiq: ${p.qty} ${p.unit}` }))} />
+              ) : (
+                <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
+              )}
+            </div>
+            <Btn variant="ghost" disabled={!pickProductId} onClick={addFromSklad}><Plus size={14} /> Qo'shish</Btn>
+            <Btn variant="ghost" onClick={addManual}><Plus size={14} /> Qo'lda qo'shish</Btn>
+          </div>
+        </div>
+      </div>
 
       <div style={{ height: 14 }} />
 
