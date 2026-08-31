@@ -3517,7 +3517,7 @@ export default function App({ branchId = "main" }) {
         {tab === "callcenter" && <CallCenterTab data={data} patch={patch} />}
         {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} saveState={saveState} />}
         {tab === "warehouse"  && <WarehouseTab  data={data} patch={patch} rate={rate} role={role} />}
-        {tab === "quote"      && <QuoteTab      data={data} />}
+        {tab === "quote"      && <QuoteTab      data={data} patch={patch} />}
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
         {tab === "warranty"   && <WarrantyTab   data={data} patch={patch} rate={rate} />}
@@ -6108,13 +6108,16 @@ function FinalizeModal({ card, partsCost, feeSum, rate, onBack, onClose, onSave 
    Mustaqil komponent: umumiy `data` bazasiga hech narsa yozmaydi, faqat
    Sklad ro'yxatini o'qiydi — shu sababli boshqa hech qaysi hisob-kitobga
    ta'sir qilmaydi. Faqat shu ekranda ishlaydi, Excel sifatida chiqariladi. */
-function QuoteTab({ data }) {
+function QuoteTab({ data, patch }) {
   const products = data.products || [];
+  const savedQuotes = data.commercialOffers || [];
+  const [currentQuoteId, setCurrentQuoteId] = useState(null);
   const [customerName, setCustomerName] = useState("");
   const [carInfo, setCarInfo] = useState("");
   const [items, setItems] = useState([]);
   const [pickProductId, setPickProductId] = useState("");
   const [profitPercent, setProfitPercent] = useState("0");
+  const [savedMsg, setSavedMsg] = useState("");
 
   const profit = num(profitPercent);
   const productItems = items.filter((it) => it.kind === "mahsulot");
@@ -6133,7 +6136,7 @@ function QuoteTab({ data }) {
     if (!p) return;
     setItems((prev) => [...prev, {
       id: uid(), kind: "mahsulot", name: p.name, unit: p.unit || "dona",
-      qty: 1, priceSum: num(p.costSum), source: "sklad",
+      qty: 1, priceSum: num(p.costSum), source: "sklad", productId: p.id,
     }]);
     setPickProductId("");
   }
@@ -6152,6 +6155,65 @@ function QuoteTab({ data }) {
 
   function removeItem(id) {
     setItems((prev) => prev.filter((it) => it.id !== id));
+  }
+
+  // Skladdan olingan har bir qatorning narxini Skladdagi ENG SO'NGGI tannarxga
+  // yangilaydi — narxlar o'zgargan bo'lsa, taklif shu bosim bilan qayta hisoblanadi.
+  // Qo'lda kiritilgan va Usta xizmati qatorlariga tegmaydi (ularning Skladda
+  // manbasi yo'q).
+  function recalcPrices() {
+    let changed = 0;
+    setItems((prev) => prev.map((it) => {
+      if (it.source !== "sklad" || !it.productId) return it;
+      const p = products.find((x) => x.id === it.productId);
+      if (!p) return it;
+      if (num(p.costSum) !== num(it.priceSum)) changed++;
+      return { ...it, priceSum: num(p.costSum), name: p.name, unit: p.unit || it.unit };
+    }));
+    setSavedMsg(changed > 0 ? `${changed} ta narx yangilandi — endi "Saqlash"ni bosing` : "Narxlar allaqachon dolzarb");
+    setTimeout(() => setSavedMsg(""), 4000);
+  }
+
+  function resetForm() {
+    setCurrentQuoteId(null);
+    setCustomerName("");
+    setCarInfo("");
+    setItems([]);
+    setProfitPercent("0");
+  }
+
+  function loadQuote(q) {
+    setCurrentQuoteId(q.id);
+    setCustomerName(q.customerName || "");
+    setCarInfo(q.carInfo || "");
+    setItems(q.items || []);
+    setProfitPercent(String(q.profitPercent ?? 0));
+  }
+
+  function saveQuote() {
+    const qid = currentQuoteId || uid();
+    const quoteObj = {
+      id: qid, date: todayISO(), customerName, carInfo,
+      profitPercent: profit, items, total,
+    };
+    patch((d) => {
+      d.commercialOffers = d.commercialOffers || [];
+      const idx = d.commercialOffers.findIndex((x) => x.id === qid);
+      if (idx >= 0) d.commercialOffers[idx] = quoteObj;
+      else d.commercialOffers.unshift(quoteObj);
+      return d;
+    });
+    setCurrentQuoteId(qid);
+    setSavedMsg("Saqlandi");
+    setTimeout(() => setSavedMsg(""), 2500);
+  }
+
+  function deleteQuote(id) {
+    patch((d) => {
+      d.commercialOffers = (d.commercialOffers || []).filter((x) => x.id !== id);
+      return d;
+    });
+    if (currentQuoteId === id) resetForm();
   }
 
   function exportExcel() {
@@ -6183,13 +6245,48 @@ function QuoteTab({ data }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 18 }}>
-        <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Kommertsiya taklifi</h2>
-        <p style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>
-          Har bir avtomobil uchun alohida narx-taklif tuzing — Skladdagi mahsulotlarni tanlang
-          yoki qo'lda kiriting, narxlarni tahrirlang va Excel sifatida yuklab oling.
-        </p>
+      <div style={{ marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Kommertsiya taklifi</h2>
+          <p style={{ color: T.muted, fontSize: 12, marginTop: 3, maxWidth: 640 }}>
+            Har bir avtomobil uchun alohida narx-taklif tuzing — Skladdagi mahsulotlarni tanlang
+            yoki qo'lda kiriting, narxlarni tahrirlang va Excel sifatida yuklab oling.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {savedMsg && <span style={{ fontSize: 12, color: T.teal, fontWeight: 600 }}>{savedMsg}</span>}
+          {currentQuoteId && <Btn variant="ghost" size="sm" onClick={resetForm}><Plus size={13} /> Yangi taklif</Btn>}
+        </div>
       </div>
+
+      {savedQuotes.length > 0 && (
+        <>
+          <Card title={`Saqlangan takliflar (${savedQuotes.length} ta)`}>
+            <div style={{ display: "grid", gap: 6 }}>
+              {savedQuotes.map((q) => (
+                <div key={q.id} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                  padding: "8px 10px", borderRadius: 8,
+                  background: q.id === currentQuoteId ? T.goldD : "transparent",
+                }}>
+                  <div style={{ fontSize: 12.5 }}>
+                    <b>{q.customerName || "Mijoz ko'rsatilmagan"}</b>
+                    {q.carInfo && <span style={{ color: T.muted }}> — {q.carInfo}</span>}
+                    <span style={{ color: T.muted }}> · {fmtDate(q.date)} · {fmtSum(q.total)}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Btn size="sm" variant="ghost" onClick={() => loadQuote(q)}>Ochish</Btn>
+                    <button onClick={() => deleteQuote(q.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <div style={{ height: 14 }} />
+        </>
+      )}
 
       <Card title="Mijoz va avtomobil ma'lumotlari">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
@@ -6288,7 +6385,13 @@ function QuoteTab({ data }) {
 
       <div style={{ height: 14 }} />
 
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+        <Btn variant="ghost" disabled={items.length === 0} onClick={recalcPrices}>
+          <RefreshCw size={15} /> Narxlarni qayta hisoblash
+        </Btn>
+        <Btn variant="teal" disabled={items.length === 0} onClick={saveQuote}>
+          <Save size={15} /> Saqlash
+        </Btn>
         <Btn variant="gold" disabled={items.length === 0} onClick={exportExcel}>
           <Download size={15} /> Excel yuklab olish
         </Btn>
