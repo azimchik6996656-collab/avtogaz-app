@@ -6114,21 +6114,36 @@ function QuoteTab({ data }) {
   const [carInfo, setCarInfo] = useState("");
   const [items, setItems] = useState([]);
   const [pickProductId, setPickProductId] = useState("");
+  const [profitPercent, setProfitPercent] = useState("0");
 
-  const total = items.reduce((s, it) => s + num(it.qty) * num(it.priceSum), 0);
+  const profit = num(profitPercent);
+  const productItems = items.filter((it) => it.kind === "mahsulot");
+  const ustaItems = items.filter((it) => it.kind === "usta");
+  // Mahsulot — Skladdagi TANNARX bo'yicha, Usta xizmati — to'g'ridan kiritilgan haq.
+  // Ikkalasi qo'shilib "umumiy tannarx"ni tashkil qiladi, ustiga Servis o'z
+  // foydasini foiz sifatida qo'shadi — shu mijozga taqdim etiladigan narx bo'ladi.
+  const productCostTotal = productItems.reduce((s, it) => s + num(it.qty) * num(it.priceSum), 0);
+  const ustaTotal = ustaItems.reduce((s, it) => s + num(it.qty) * num(it.priceSum), 0);
+  const baseCostTotal = productCostTotal + ustaTotal;
+  const servisFoyda = baseCostTotal * (profit / 100);
+  const total = baseCostTotal + servisFoyda;
 
   function addFromSklad() {
     const p = products.find((x) => x.id === pickProductId);
     if (!p) return;
     setItems((prev) => [...prev, {
-      id: uid(), name: p.name, unit: p.unit || "dona",
-      qty: 1, priceSum: num(p.priceSum), source: "sklad",
+      id: uid(), kind: "mahsulot", name: p.name, unit: p.unit || "dona",
+      qty: 1, priceSum: num(p.costSum), source: "sklad",
     }]);
     setPickProductId("");
   }
 
   function addManual() {
-    setItems((prev) => [...prev, { id: uid(), name: "", unit: "dona", qty: 1, priceSum: 0, source: "manual" }]);
+    setItems((prev) => [...prev, { id: uid(), kind: "mahsulot", name: "", unit: "dona", qty: 1, priceSum: 0, source: "manual" }]);
+  }
+
+  function addUstaXizmati() {
+    setItems((prev) => [...prev, { id: uid(), kind: "usta", name: "", unit: "xizmat", qty: 1, priceSum: 0, source: "manual" }]);
   }
 
   function updateItem(id, field, value) {
@@ -6146,14 +6161,18 @@ function QuoteTab({ data }) {
     if (customerName.trim()) rows.push([`Mijoz: ${customerName.trim()}`]);
     if (carInfo.trim()) rows.push([`Avtomobil: ${carInfo.trim()}`]);
     rows.push([]);
-    rows.push(["№", "Nomi", "Birlik", "Miqdor", "Narx (dona)", "Jami"]);
+    rows.push(["№", "Turi", "Nomi", "Birlik", "Miqdor", "Narx", "Jami"]);
     items.forEach((it, i) => {
-      rows.push([i + 1, it.name || "—", it.unit, num(it.qty), num(it.priceSum), num(it.qty) * num(it.priceSum)]);
+      rows.push([i + 1, it.kind === "usta" ? "Usta xizmati" : "Mahsulot", it.name || "—", it.unit, num(it.qty), num(it.priceSum), num(it.qty) * num(it.priceSum)]);
     });
     rows.push([]);
-    rows.push(["", "", "", "", "Umumiy summa:", total]);
+    rows.push(["", "", "", "", "", "Mahsulot tannarxi:", productCostTotal]);
+    rows.push(["", "", "", "", "", "Usta xizmati:", ustaTotal]);
+    rows.push(["", "", "", "", "", "Umumiy tannarx:", baseCostTotal]);
+    rows.push(["", "", "", "", "", `Servis foydasi (${profit}%):`, servisFoyda]);
+    rows.push(["", "", "", "", "", "Umumiy summa:", total]);
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 5 }, { wch: 34 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }];
+    ws["!cols"] = [{ wch: 5 }, { wch: 12 }, { wch: 32 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Taklif");
     const safeCust = customerName.trim()
@@ -6180,6 +6199,9 @@ function QuoteTab({ data }) {
           <F label="Avtomobil (ixtiyoriy)">
             <input style={iSt} value={carInfo} onChange={(e) => setCarInfo(e.target.value)} placeholder="Masalan: Chevrolet Cobalt, 01A123AA" />
           </F>
+          <F label="Servis foydasi (%) — umumiy tannarxga">
+            <input type="number" style={iSt} value={profitPercent} onChange={(e) => setProfitPercent(e.target.value)} placeholder="0" />
+          </F>
         </div>
       </Card>
 
@@ -6202,13 +6224,14 @@ function QuoteTab({ data }) {
             <div style={{ flex: 1, minWidth: 220, position: "relative" }}>
               {products.length ? (
                 <SearchSelect value={pickProductId} onChange={setPickProductId} placeholder="Mahsulot nomini yozing..."
-                  options={products.map((p) => ({ value: p.id, label: p.name, sub: `${fmtSum(p.priceSum)} · qoldiq: ${p.qty} ${p.unit}` }))} />
+                  options={products.map((p) => ({ value: p.id, label: p.name, sub: `Tannarx: ${fmtSum(p.costSum)} · qoldiq: ${p.qty} ${p.unit}` }))} />
               ) : (
                 <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
               )}
             </div>
             <Btn variant="ghost" disabled={!pickProductId} onClick={addFromSklad}><Plus size={14} /> Qo'shish</Btn>
-            <Btn variant="ghost" onClick={addManual}><Plus size={14} /> Qo'lda qo'shish</Btn>
+            <Btn variant="ghost" onClick={addManual}><Plus size={14} /> Qo'lda mahsulot</Btn>
+            <Btn variant="ghost" onClick={addUstaXizmati}><Wrench size={14} /> Usta xizmati qo'shish</Btn>
           </div>
         </div>
       </div>
@@ -6220,12 +6243,14 @@ function QuoteTab({ data }) {
           <p style={{ color: T.muted, fontSize: 13 }}>Hali hech narsa qo'shilmagan.</p>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 120px 120px 32px", gap: 8, fontSize: 10, fontWeight: 700, color: T.muted2, textTransform: "uppercase", letterSpacing: ".06em", padding: "0 4px" }}>
-              <div>Nomi</div><div>Birlik</div><div>Miqdor</div><div>Narx</div><div>Jami</div><div />
+            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 80px 110px 110px 32px", gap: 8, fontSize: 10, fontWeight: 700, color: T.muted2, textTransform: "uppercase", letterSpacing: ".06em", padding: "0 4px" }}>
+              <div>Turi</div><div>Nomi</div><div>Birlik</div><div>Miqdor</div><div>Narx</div><div>Jami</div><div />
             </div>
             {items.map((it) => (
-              <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 120px 120px 32px", gap: 8, alignItems: "center" }}>
-                <input style={iSt} value={it.name} onChange={(e) => updateItem(it.id, "name", e.target.value)} placeholder="Nomi" />
+              <div key={it.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 80px 110px 110px 32px", gap: 8, alignItems: "center" }}>
+                <Badge color={it.kind === "usta" ? T.teal : T.blue}>{it.kind === "usta" ? "Usta" : "Mahsulot"}</Badge>
+                <input style={iSt} value={it.name} onChange={(e) => updateItem(it.id, "name", e.target.value)}
+                  placeholder={it.kind === "usta" ? "Xizmat nomi (masalan: O'rnatish)" : "Nomi"} />
                 <input style={iSt} value={it.unit} onChange={(e) => updateItem(it.id, "unit", e.target.value)} />
                 <input type="number" style={iSt} value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)} />
                 <input type="number" style={iSt} value={it.priceSum} onChange={(e) => updateItem(it.id, "priceSum", e.target.value)} />
@@ -6241,10 +6266,29 @@ function QuoteTab({ data }) {
 
       <div style={{ height: 14 }} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <div style={{ fontSize: 15, fontWeight: 800 }}>
-          Umumiy summa: <span style={{ color: T.gold }}>{fmtSum(total)}</span>
+      <Card title="Yakuniy hisob-kitob">
+        <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: T.muted }}>Mahsulot tannarxi</span><span>{fmtSum(productCostTotal)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: T.muted }}>Usta xizmati</span><span>{fmtSum(ustaTotal)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+            <span style={{ color: T.muted }}>Umumiy tannarx</span><span style={{ fontWeight: 700 }}>{fmtSum(baseCostTotal)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: T.muted }}>Servis foydasi ({profit}%)</span><span style={{ color: T.teal }}>+{fmtSum(servisFoyda)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${T.border}`, paddingTop: 8, fontSize: 16, fontWeight: 800 }}>
+            <span>Mijozga narx</span><span style={{ color: T.gold }}>{fmtSum(total)}</span>
+          </div>
         </div>
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <Btn variant="gold" disabled={items.length === 0} onClick={exportExcel}>
           <Download size={15} /> Excel yuklab olish
         </Btn>
