@@ -14,7 +14,7 @@ import {
   Loader2, Check, Users, Settings2, ShoppingCart, Download, Upload,
   Car, ShieldCheck, BarChart3, Handshake, RefreshCw, Wrench, Lock,
   LogOut, Delete, KeyRound, Clock, PlayCircle, Phone, PhoneCall,
-  Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo
+  Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo, FileText
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════
@@ -3288,6 +3288,7 @@ export default function App({ branchId = "main" }) {
     { id: "callcenter",label: "Qo'ng'iroqlar", Icon: PhoneCall,  roles: ["azim", "kassir"] },
     { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad", "usta_station"] },
     { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar"] },
+    { id: "quote",     label: "Kommertsiya taklifi", Icon: FileText, roles: ["azim", "kassir", "rahbar"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
     { id: "warranty",  label: "Kafolat",       Icon: ShieldCheck,roles: ["azim", "kassir"] },
@@ -3516,6 +3517,7 @@ export default function App({ branchId = "main" }) {
         {tab === "callcenter" && <CallCenterTab data={data} patch={patch} />}
         {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} saveState={saveState} />}
         {tab === "warehouse"  && <WarehouseTab  data={data} patch={patch} rate={rate} role={role} />}
+        {tab === "quote"      && <QuoteTab      data={data} />}
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
         {tab === "warranty"   && <WarrantyTab   data={data} patch={patch} rate={rate} />}
@@ -6099,6 +6101,142 @@ function FinalizeModal({ card, partsCost, feeSum, rate, onBack, onClose, onSave 
         <Check size={16} /> {submitted ? "Saqlanmoqda..." : "Yakunlash va yopish"}
       </SaveBtn>
     </Modal>
+  );
+}
+
+/* ─── KOMMERTSIYA TAKLIFI — mijozga narx-taklif, avtomobilga individual ───
+   Mustaqil komponent: umumiy `data` bazasiga hech narsa yozmaydi, faqat
+   Sklad ro'yxatini o'qiydi — shu sababli boshqa hech qaysi hisob-kitobga
+   ta'sir qilmaydi. Faqat shu ekranda ishlaydi, Excel sifatida chiqariladi. */
+function QuoteTab({ data }) {
+  const products = data.products || [];
+  const [customerName, setCustomerName] = useState("");
+  const [carInfo, setCarInfo] = useState("");
+  const [items, setItems] = useState([]);
+  const [pickProductId, setPickProductId] = useState("");
+
+  const total = items.reduce((s, it) => s + num(it.qty) * num(it.priceSum), 0);
+
+  function addFromSklad() {
+    const p = products.find((x) => x.id === pickProductId);
+    if (!p) return;
+    setItems((prev) => [...prev, {
+      id: uid(), name: p.name, unit: p.unit || "dona",
+      qty: 1, priceSum: num(p.priceSum), source: "sklad",
+    }]);
+    setPickProductId("");
+  }
+
+  function addManual() {
+    setItems((prev) => [...prev, { id: uid(), name: "", unit: "dona", qty: 1, priceSum: 0, source: "manual" }]);
+  }
+
+  function updateItem(id, field, value) {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, [field]: value } : it)));
+  }
+
+  function removeItem(id) {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+  }
+
+  function exportExcel() {
+    const rows = [];
+    rows.push(["Kommertsiya taklifi"]);
+    rows.push([`Sana: ${fmtDate(todayISO())}`]);
+    if (customerName.trim()) rows.push([`Mijoz: ${customerName.trim()}`]);
+    if (carInfo.trim()) rows.push([`Avtomobil: ${carInfo.trim()}`]);
+    rows.push([]);
+    rows.push(["№", "Nomi", "Birlik", "Miqdor", "Narx (dona)", "Jami"]);
+    items.forEach((it, i) => {
+      rows.push([i + 1, it.name || "—", it.unit, num(it.qty), num(it.priceSum), num(it.qty) * num(it.priceSum)]);
+    });
+    rows.push([]);
+    rows.push(["", "", "", "", "Umumiy summa:", total]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 5 }, { wch: 34 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Taklif");
+    const safeCust = customerName.trim()
+      ? "-" + customerName.trim().replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 24)
+      : "";
+    XLSX.writeFile(wb, `kommertsiya-taklif${safeCust}-${todayISO()}.xlsx`);
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18 }}>
+        <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Kommertsiya taklifi</h2>
+        <p style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>
+          Har bir avtomobil uchun alohida narx-taklif tuzing — Skladdagi mahsulotlarni tanlang
+          yoki qo'lda kiriting, narxlarni tahrirlang va Excel sifatida yuklab oling.
+        </p>
+      </div>
+
+      <Card title="Mijoz va avtomobil ma'lumotlari">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+          <F label="Mijoz (ixtiyoriy)">
+            <input style={iSt} value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Mijoz ismi / kompaniya" />
+          </F>
+          <F label="Avtomobil (ixtiyoriy)">
+            <input style={iSt} value={carInfo} onChange={(e) => setCarInfo(e.target.value)} placeholder="Masalan: Chevrolet Cobalt, 01A123AA" />
+          </F>
+        </div>
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <Card title="Skladdan qo'shish">
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            {products.length ? (
+              <SearchSelect value={pickProductId} onChange={setPickProductId} placeholder="Mahsulot nomini yozing..."
+                options={products.map((p) => ({ value: p.id, label: p.name, sub: `${fmtSum(p.priceSum)} · qoldiq: ${p.qty} ${p.unit}` }))} />
+            ) : (
+              <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
+            )}
+          </div>
+          <Btn variant="ghost" disabled={!pickProductId} onClick={addFromSklad}><Plus size={14} /> Qo'shish</Btn>
+          <Btn variant="ghost" onClick={addManual}><Plus size={14} /> Qo'lda qo'shish</Btn>
+        </div>
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <Card title={`Taklif tarkibi (${items.length} ta)`}>
+        {items.length === 0 ? (
+          <p style={{ color: T.muted, fontSize: 13 }}>Hali hech narsa qo'shilmagan.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 120px 120px 32px", gap: 8, fontSize: 10, fontWeight: 700, color: T.muted2, textTransform: "uppercase", letterSpacing: ".06em", padding: "0 4px" }}>
+              <div>Nomi</div><div>Birlik</div><div>Miqdor</div><div>Narx</div><div>Jami</div><div />
+            </div>
+            {items.map((it) => (
+              <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 120px 120px 32px", gap: 8, alignItems: "center" }}>
+                <input style={iSt} value={it.name} onChange={(e) => updateItem(it.id, "name", e.target.value)} placeholder="Nomi" />
+                <input style={iSt} value={it.unit} onChange={(e) => updateItem(it.id, "unit", e.target.value)} />
+                <input type="number" style={iSt} value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)} />
+                <input type="number" style={iSt} value={it.priceSum} onChange={(e) => updateItem(it.id, "priceSum", e.target.value)} />
+                <div style={{ fontWeight: 700, color: T.gold, fontSize: 13 }}>{fmtSum(num(it.qty) * num(it.priceSum))}</div>
+                <button onClick={() => removeItem(it.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red }}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ fontSize: 15, fontWeight: 800 }}>
+          Umumiy summa: <span style={{ color: T.gold }}>{fmtSum(total)}</span>
+        </div>
+        <Btn variant="gold" disabled={items.length === 0} onClick={exportExcel}>
+          <Download size={15} /> Excel yuklab olish
+        </Btn>
+      </div>
+    </div>
   );
 }
 
