@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { storage } from "../lib/supabase";
 import { authClient } from "../lib/authClient";
 import {
@@ -11070,7 +11070,6 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
             })} />
         )}
       </div>
-      {rahbar && <DailyReportSettings data={data} onUpdate={s => setData(p => ({...p, settings:s}))} />}
 
       {openStat && (
         <Card
@@ -11483,84 +11482,3 @@ function KpiEditCard({ value, history, onAdd }) {
     </div>
   );
 }
-
-// === KUNLIK HISOBOT SOZLAMALARI (v60) ===
-function DailyReportSettings({ data, onUpdate }) {
-  const settings = data.settings || {};
-  const [method, setMethod] = React.useState(settings.dailyReportMethod || "");
-  const [phone, setPhone] = React.useState(settings.dailyReportPhone || "");
-  const [chatId, setChatId] = React.useState(settings.dailyReportChat || "");
-  const [showTest, setShowTest] = React.useState(false);
-  const [testStatus, setTestStatus] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
-
-  const handleSave = () => {
-    onUpdate({ ...settings, dailyReportMethod: method, dailyReportPhone: phone, dailyReportChat: chatId });
-  };
-
-  const sendTestReport = async () => {
-    setLoading(true); setTestStatus("Yuborilmoqda...");
-    try {
-      const res = await fetch("/api/daily-report", { method: "POST", headers: { "Content-Type": "application/json", "authorization": "Bearer test" } });
-      const result = await res.json();
-      if (res.ok) {
-        if (method === "whatsapp" && result.sentWhatsApp) setTestStatus("OK - WhatsApp yuborildi!");
-        else if (method === "telegram" && result.sentTelegram) setTestStatus("OK - Telegram yuborildi!");
-        else setTestStatus("Hisobot yaratildi, lekin yuborilmadi (sozlamani tekshiring)");
-      } else { setTestStatus("Xato: " + (result.error || "Noma'lum")); }
-    } catch (e) { setTestStatus("Xato: " + e.message); }
-    setLoading(false);
-  };
-
-  const isChanged = method !== (settings.dailyReportMethod || "") ||
-                    phone !== (settings.dailyReportPhone || "") ||
-                    chatId !== (settings.dailyReportChat || "");
-
-  return (
-    <Card title="Kunlik Sklad Hisoboti" pad={true}>
-      <p style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>
-        Har kuni 00:30 da sklad kirim/chiqim hisobotini avtomatik yuboradi.
-      </p>
-      <F label="Yuborish usuli">
-        <div style={{ display: "flex", gap: 16 }}>
-          {["whatsapp","telegram",""].map(v => (
-            <label key={v} style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer" }}>
-              <input type="radio" value={v} checked={method===v} onChange={e=>setMethod(e.target.value)} />
-              <span>{v==="whatsapp"?"WhatsApp":v==="telegram"?"Telegram":"O'chirilgan"}</span>
-            </label>
-          ))}
-        </div>
-      </F>
-      {method === "whatsapp" && (
-        <F label="WhatsApp telefon (+998...)">
-          <input type="tel" style={iSt} placeholder="+998901234567" value={phone} onChange={e=>setPhone(e.target.value)} />
-        </F>
-      )}
-      {method === "telegram" && (
-        <F label="Telegram Chat ID">
-          <input type="text" style={iSt} placeholder="123456789" value={chatId} onChange={e=>setChatId(e.target.value)} />
-        </F>
-      )}
-      <div style={{ display:"flex", gap:10, marginTop:14 }}>
-        <SaveBtn onClick={handleSave} disabled={!isChanged} color={T.blue}>
-          <Save size={14}/> Saqlash
-        </SaveBtn>
-        {(method==="whatsapp"||method==="telegram") && (
-          <SaveBtn onClick={()=>setShowTest(p=>!p)} color={T.purple}>
-            <RefreshCw size={14}/> Test
-          </SaveBtn>
-        )}
-      </div>
-      {showTest && (
-        <div style={{ marginTop:12, padding:10, backgroundColor:"#f5f5f5", borderRadius:6, fontSize:13 }}>
-          <div style={{ marginBottom:8 }}>{testStatus || "Test yuborish uchun bosing"}</div>
-          <button onClick={sendTestReport} disabled={loading} style={{ padding:"6px 12px", backgroundColor:"#2196F3", color:"#fff", border:"none", borderRadius:4, cursor:"pointer", fontSize:12 }}>
-            {loading ? "Yuborilmoqda..." : "Hozir yuborish"}
-          </button>
-        </div>
-      )}
-    </Card>
-  );
-}
-// === KUNLIK HISOBOT OXIRI ===
-
