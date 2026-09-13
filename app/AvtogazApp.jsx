@@ -13,7 +13,7 @@ import {
   Package, Wallet, Plus, X, TrendingUp, TrendingDown, ChevronDown, Trash2,
   Loader2, Check, Users, Settings2, ShoppingCart, Download, Upload,
   Car, ShieldCheck, BarChart3, Handshake, RefreshCw, Wrench, Lock,
-  LogOut, Delete, KeyRound, Clock, PlayCircle, Phone, PhoneCall,
+  LogOut, Delete, KeyRound, Clock, PlayCircle, PauseCircle, Phone, PhoneCall,
   Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo, FileText
 } from "lucide-react";
 
@@ -93,6 +93,7 @@ const emptyData = () => ({
   wholesaleDebts: [], // ulgurji savdo — mijozlarning qarzga olgan tovarlari
   inventories: [], // sklad inventarizatsiya yozuvlari
   inventoryRequests: [], // Rahbar <-> Kassir inventarizatsiya kelishuv jarayoni
+  shifts: [], // {id, role, name, date, clockIn, clockOut, pauseStart, pausedMinutes} — xodimlar ish vaqti (smenasi)
   currencyExchanges: [], // USD <-> SO'M ayirboshlash yozuvlari (kirim/chiqim umumiy tushum/foydaga qo'shilmaydi — faqat kassa balansiga ta'sir qiladi)
   auditLog: [], // {id, ts, actor, note} — kim, qachon, nima o'zgartirgani (faqat muhim harakatlar, oxirgi 300 tasi)
 });
@@ -3093,6 +3094,7 @@ export default function App({ branchId = "main" }) {
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error | conflict
   const [tab, setTab] = useState("dashboard");
   const [role, setRole] = useState(null);
+  const [staffName, setStaffName] = useState(null); // kirgan xodimning ismi (ish vaqti nazorati uchun) — azim/rahbar/kassir/sklad
   const [ustaName, setUstaName] = useState(null); // usta rolida kim ekanini bilish uchun (sessiya doirasida)
   const [supplierName, setSupplierName] = useState(null); // taminotchi rolida kim ekanini bilish uchun
   const [partnerId, setPartnerId] = useState(null); // hamkor rolida kim ekanini bilish uchun
@@ -3123,6 +3125,7 @@ export default function App({ branchId = "main" }) {
               setPending2FA({ token: session.access_token, role: json.role, email: json.email, fullName: json.fullName });
             } else {
               setRole(json.role);
+              setStaffName(json.fullName || null);
             }
           } else {
             await authClient.signOutGoogle();
@@ -3289,6 +3292,7 @@ export default function App({ branchId = "main" }) {
     { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad", "usta_station"] },
     { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar"] },
     { id: "quote",     label: "Kommertsiya taklifi", Icon: FileText, roles: ["azim", "kassir", "rahbar"] },
+    { id: "ishvaqti",  label: "Ish vaqti",     Icon: Clock,      roles: ["azim", "rahbar", "sklad", "kassir"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
     { id: "warranty",  label: "Kafolat",       Icon: ShieldCheck,roles: ["azim", "kassir"] },
@@ -3329,6 +3333,7 @@ export default function App({ branchId = "main" }) {
         authClient.setPinToken(token);
         setPending2FA(null);
         setRole(role);
+        setStaffName(name || null);
       }}
     />
   );
@@ -3343,6 +3348,7 @@ export default function App({ branchId = "main" }) {
         if (r === "usta") setUstaName(name);
         else if (r === "taminotchi") setSupplierName(name);
         else if (r === "hamkor") setPartnerId(name);
+        else setStaffName(name || null);
       }}
     />
   );
@@ -3518,6 +3524,7 @@ export default function App({ branchId = "main" }) {
         {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} saveState={saveState} />}
         {tab === "warehouse"  && <WarehouseTab  data={data} patch={patch} rate={rate} role={role} />}
         {tab === "quote"      && <QuoteTab      data={data} patch={patch} />}
+        {tab === "ishvaqti"   && <WorkTimeTab   data={data} patch={patch} role={role} staffName={staffName} />}
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
         {tab === "warranty"   && <WarrantyTab   data={data} patch={patch} rate={rate} />}
@@ -6878,6 +6885,184 @@ function InventoryCountModal({ products, onClose, onSave }) {
         <Check size={15} /> Inventarizatsiyani yakunlash
       </SaveBtn>
     </Modal>
+  );
+}
+
+/* ── ISH VAQTI — xodim (sklad/kassir) o'z smenasini belgilaydi, rahbar/azim hammasini ko'radi ── */
+function minutesBetween(t1, t2) {
+  const [h1, m1] = t1.split(":").map(Number);
+  const [h2, m2] = t2.split(":").map(Number);
+  let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (mins < 0) mins += 24 * 60; // yarim tundan o'tgan
+  return mins;
+}
+function shiftMinutes(s) {
+  if (!s.clockIn) return 0;
+  const end = s.clockOut || nowTime();
+  let mins = minutesBetween(s.clockIn, end);
+
+  let paused = s.pausedMinutes || 0;
+  if (s.pauseStart && !s.clockOut) {
+    paused += minutesBetween(s.pauseStart, end); // hozir pauzada — davom etayotgan pauza vaqti
+  }
+  mins -= paused;
+  return mins < 0 ? 0 : mins;
+}
+function shiftPausedMinutes(s) {
+  let paused = s.pausedMinutes || 0;
+  if (s.pauseStart && !s.clockOut) {
+    paused += minutesBetween(s.pauseStart, nowTime());
+  }
+  return paused;
+}
+function fmtDuration(mins) {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return `${h} soat ${m ? `${m} daq` : ""}`.trim();
+}
+
+function WorkTimeTab({ data, patch, role, staffName }) {
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => forceTick((x) => x + 1), 30000); // ochiq smena taymerini yangilab turish
+    return () => clearInterval(t);
+  }, []);
+
+  const myName = staffName || ROLE_LABELS[role] || role;
+  const shifts = data.shifts || [];
+  const isWorker = role === "sklad" || role === "kassir";
+  const today = todayISO();
+
+  const myOpenShift = shifts.find((s) => s.role === role && s.name === myName && !s.clockOut);
+  const myTodayShifts = shifts.filter((s) => s.role === role && s.name === myName && s.date === today);
+  const myTodayMinutes = myTodayShifts.reduce((sum, s) => sum + shiftMinutes(s), 0);
+
+  function clockIn() {
+    patch((d) => {
+      d.shifts = d.shifts || [];
+      d.shifts.unshift({ id: uid(), role, name: myName, date: todayISO(), clockIn: nowTime(), clockOut: null, pauseStart: null, pausedMinutes: 0 });
+      return d;
+    });
+  }
+  function clockOut(id) {
+    patch((d) => {
+      const s = (d.shifts || []).find((x) => x.id === id);
+      if (s && !s.clockOut) {
+        if (s.pauseStart) {
+          // pauzada bo'lsa, ish tugatishdan oldin pauzani ham yakunlaymiz
+          s.pausedMinutes = (s.pausedMinutes || 0) + minutesBetween(s.pauseStart, nowTime());
+          s.pauseStart = null;
+        }
+        s.clockOut = nowTime();
+      }
+      return d;
+    });
+  }
+  function pauseShift(id) {
+    patch((d) => {
+      const s = (d.shifts || []).find((x) => x.id === id);
+      if (s && !s.clockOut && !s.pauseStart) s.pauseStart = nowTime();
+      return d;
+    });
+  }
+  function resumeShift(id) {
+    patch((d) => {
+      const s = (d.shifts || []).find((x) => x.id === id);
+      if (s && s.pauseStart) {
+        s.pausedMinutes = (s.pausedMinutes || 0) + minutesBetween(s.pauseStart, nowTime());
+        s.pauseStart = null;
+      }
+      return d;
+    });
+  }
+
+  // Rahbar/azim uchun — oxirgi 30 kunlik barcha xodimlar smenasi, kunlik jamlanma
+  const since = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+  const recentShifts = shifts.filter((s) => s.date >= since).sort((a, b) => (b.date + (b.clockIn || "")).localeCompare(a.date + (a.clockIn || "")));
+  const byPersonToday = {};
+  shifts.filter((s) => s.date === today).forEach((s) => {
+    const key = `${s.name} (${ROLE_LABELS[s.role] || s.role})`;
+    byPersonToday[key] = (byPersonToday[key] || 0) + shiftMinutes(s);
+  });
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18 }}>
+        <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Ish vaqti</h2>
+        <p style={{ color: T.muted, fontSize: 12, marginTop: 3, maxWidth: 520 }}>
+          Xodimlar smenasi — kim qachon ish boshlagani, tugatgani va necha soat ishlagani
+        </p>
+      </div>
+
+      {isWorker && (
+        <Card title="Mening smenam" accent={myOpenShift ? T.teal : undefined}>
+          {myOpenShift ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 12, color: T.muted }}>Ish boshlangan vaqt</div>
+                <div className="mo" style={{ fontSize: 20, fontWeight: 800, color: myOpenShift.pauseStart ? T.gold : T.teal }}>{myOpenShift.clockIn}</div>
+                {myOpenShift.pauseStart ? (
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+                    <Badge color={T.gold}>Pauzada</Badge>{" "}
+                    <span className="mo">{myOpenShift.pauseStart}</span> dan beri — jami ish: <b className="mo">{fmtDuration(shiftMinutes(myOpenShift))}</b>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+                    Hozirgacha: <b className="mo">{fmtDuration(shiftMinutes(myOpenShift))}</b> ishladingiz
+                    {shiftPausedMinutes(myOpenShift) > 0 && <> (pauza: <b className="mo">{fmtDuration(shiftPausedMinutes(myOpenShift))}</b>)</>}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {myOpenShift.pauseStart ? (
+                  <Btn onClick={() => resumeShift(myOpenShift.id)} style={{ background: T.teal }}><PlayCircle size={14} /> Davom ettirish</Btn>
+                ) : (
+                  <Btn onClick={() => pauseShift(myOpenShift.id)} style={{ background: T.gold }}><PauseCircle size={14} /> Pauza</Btn>
+                )}
+                <Btn onClick={() => clockOut(myOpenShift.id)} style={{ background: T.red }}>Ish tugadi</Btn>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+              <div style={{ fontSize: 13, color: T.muted }}>
+                Bugun {myTodayShifts.length > 0 ? `jami ${fmtDuration(myTodayMinutes)} ishladingiz.` : "hali smena boshlamadingiz."}
+              </div>
+              <Btn onClick={clockIn}><PlayCircle size={14} /> Ish boshladim</Btn>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {(role === "azim" || role === "rahbar") && (
+        <div style={{ marginTop: isWorker ? 18 : 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 13, marginBottom: 18 }}>
+            {Object.keys(byPersonToday).length === 0 ? (
+              <Stat label="Bugun" value="Smena yo'q" color={T.muted2} Icon={Clock} />
+            ) : Object.entries(byPersonToday).map(([name, mins]) => (
+              <Stat key={name} label={name} value={fmtDuration(mins)} color={T.teal} Icon={Clock} />
+            ))}
+          </div>
+          <Card title={`So'nggi smenalar (${recentShifts.length})`} pad={false}>
+            <Tbl
+              empty="Smena yozuvi yo'q"
+              cols={[
+                { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
+                { k: "name", h: "Xodim", r: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
+                { k: "role", h: "Roli", r: (r) => ROLE_LABELS[r.role] || r.role },
+                { k: "in", h: "Keldi", r: (r) => <span className="mo">{r.clockIn || "—"}</span> },
+                { k: "out", h: "Ketdi", r: (r) => r.clockOut
+                    ? <span className="mo">{r.clockOut}</span>
+                    : r.pauseStart
+                      ? <Badge color={T.gold}>Pauzada</Badge>
+                      : <Badge color={T.teal}>Ish jarayonida</Badge> },
+                { k: "pause", h: "Pauza", r: (r) => shiftPausedMinutes(r) > 0 ? <span className="mo">{fmtDuration(shiftPausedMinutes(r))}</span> : "—" },
+                { k: "dur", h: "Davomiyligi", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtDuration(shiftMinutes(r))}</span> },
+              ]}
+              rows={recentShifts}
+            />
+          </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
