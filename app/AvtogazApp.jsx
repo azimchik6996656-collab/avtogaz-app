@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { storage } from "../lib/supabase";
 import { authClient } from "../lib/authClient";
 import {
@@ -7,13 +7,14 @@ import {
 } from "../lib/security";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import {
   Package, Wallet, Plus, X, TrendingUp, TrendingDown, ChevronDown, Trash2,
   Loader2, Check, Users, Settings2, ShoppingCart, Download, Upload,
   Car, ShieldCheck, BarChart3, Handshake, RefreshCw, Wrench, Lock,
-  LogOut, Delete, KeyRound, Clock, PlayCircle, PauseCircle, Phone, PhoneCall,
-  Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo, History
+  LogOut, Delete, KeyRound, Clock, PlayCircle, Phone, PhoneCall,
+  Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo, FileText
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════
@@ -23,7 +24,10 @@ const STORAGE_KEY = "avtogaz-v2";
 /* Yuklanish tekshiruvi uchun — sarlavhada ko'rinadi.
    Saytda shu raqam ko'rinsa, demak eng yangi kod ishlayapti. */
 const APP_VERSION = "v59";
-const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad" };
+const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad", usta_station: "Usta stansiyasi" };
+// Har bir filial /app/<branchId>/page.js orqali kiriladi — ROW_ID sifatida shu qiymat
+// ishlatiladi (Supabase'da mustaqil qator). Yangi filial qo'shilsa, shu yerga ham qo'shiladi.
+const BRANCH_LABELS = { main: "Bosh filial", filial2: "2-filial" };
 
 const UNITS = ["dona", "kg", "litr", "metr", "komplekt"];
 const SERVICE_TYPES = ["Servis", "Ustanovka", "Detailing", "Moy bo'limi"];
@@ -73,7 +77,8 @@ const emptyData = () => ({
     branches: [{ id: "main", name: "Bosh filial", openDate: "" }],
     activeBranchId: "main",
   },
-  products: [], stockIns: [], stockOuts: [], freeSales: [], cashflow: [],
+  products: [], stockIns: [], stockOuts: [], serviceUsage: [], freeSales: [], cashflow: [],
+  apprentices: [], // usta -> shogirt (necha foizi shogirtga ajratilishi) ro'yxati
   serviceCards: [], warrantyClaims: [], partners: [], partnerTx: [],
   ustaLedger: [], leads: [], leadTasks: [],
   bonusRules: [], bonusAwards: [], nasiyaDebts: [],
@@ -88,7 +93,6 @@ const emptyData = () => ({
   wholesaleDebts: [], // ulgurji savdo — mijozlarning qarzga olgan tovarlari
   inventories: [], // sklad inventarizatsiya yozuvlari
   inventoryRequests: [], // Rahbar <-> Kassir inventarizatsiya kelishuv jarayoni
-  shifts: [], // {id, role, name, date, clockIn, clockOut} — xodimlar ish vaqti (smenasi)
   currencyExchanges: [], // USD <-> SO'M ayirboshlash yozuvlari (kirim/chiqim umumiy tushum/foydaga qo'shilmaydi — faqat kassa balansiga ta'sir qiladi)
   auditLog: [], // {id, ts, actor, note} — kim, qachon, nima o'zgartirgani (faqat muhim harakatlar, oxirgi 300 tasi)
 });
@@ -228,103 +232,6 @@ function productOutflowReport(data, fromDate, toDate) {
     add(o.productName, num(o.qty), "hamkorQty", o.date, o.amountSum);
   });
   return Object.values(map).sort((a, b) => b.totalQty - a.totalQty);
-}
-
-/**
- * SKLAD NAZORATI — istalgan sana oralig'ida har bir mahsulotning "Boshi qoldiq →
- * Kirim → Chiqim → Tuzatish → Oxiri qoldiq" harakati. Chiqim manbai — sotilgan
- * (ulgurji/hamkorga berilgan) yoki kartaga biriktirilgan bo'lishidan qat'iy nazar
- * BARCHASI hisobga olinadi.
- *
- * Faqat "hozirgi" (data.products[].qty) qiymatdan orqaga qarab hisoblanadi, chunki
- * tarixiy "kunlik qoldiq" alohida saqlanmaydi:
- *   1) currentQty'dan "toDate'dan keyingi" barcha harakatlar chiqarib tashlanadi
- *      -> closingQty (davr oxiridagi qoldiq)
- *   2) closingQty'dan davr ichidagi sof harakat (kirim-chiqim+tuzatish) ayiriladi
- *      -> openingQty (davr boshidagi qoldiq)
- * fromDate/toDate — "YYYY-MM-DD" yoki null (chegarasiz).
- */
-function stockLedgerReport(data, fromDate, toDate) {
-  const map = {};
-  (data.products || []).forEach((p) => {
-    map[p.id] = {
-      productId: p.id, name: p.name, unit: p.unit, category: p.category,
-      costSum: num(p.costSum), currentQty: num(p.qty),
-      afterQty: 0, inQty: 0, outQty: 0, adjQty: 0, movements: [],
-    };
-  });
-
-  function move(productId, date, delta, entry) {
-    const m = map[productId];
-    if (!m || !date) return;
-    if (toDate && date > toDate) { m.afterQty += delta; return; }
-    if (fromDate && date < fromDate) return;
-    if (entry.kind === "tuzatish") m.adjQty += delta;
-    else if (delta > 0) m.inQty += delta;
-    else m.outQty += -delta;
-    m.movements.push({ date, delta, ...entry });
-  }
-
-  (data.stockIns || []).forEach((s) => {
-    move(s.productId, s.date, num(s.qty), {
-      kind: "kirim", label: s.sourceType || "Ta'minotchi",
-      detail: s.supplier || "", valueSum: num(s.totalSum), time: s.time || "",
-    });
-  });
-  (data.stockOuts || []).forEach((o) => {
-    move(o.productId, o.date, -num(o.qty), {
-      kind: "chiqim", label: "Hamkorga berildi",
-      detail: o.partnerName || o.reason || "", valueSum: num(o.amountSum), time: o.time || "",
-    });
-  });
-  (data.freeSales || []).forEach((s) => {
-    (s.items || []).forEach((it) => {
-      move(it.productId, s.date, -num(it.qty), {
-        kind: "chiqim", label: "Ulgurji savdo",
-        detail: s.customer || "", valueSum: num(it.lineTotalSum), time: s.time || "",
-      });
-    });
-  });
-  (data.serviceCards || []).forEach((c) => {
-    (c.parts || []).forEach((p) => {
-      move(p.productId, c.date, -num(p.qty), {
-        kind: "chiqim", label: "Kartaga biriktirildi",
-        detail: c.plate ? `${c.plate}${c.usta ? " · " + c.usta : ""}` : (c.usta || ""),
-        valueSum: num(p.lineTotal),
-      });
-    });
-  });
-  (data.inventories || []).forEach((inv) => {
-    (inv.items || []).forEach((it) => {
-      const diff = num(it.actualQty) - num(it.systemQty);
-      if (diff !== 0) {
-        move(it.productId, inv.date, diff, {
-          kind: "tuzatish", label: "Inventarizatsiya",
-          detail: inv.note || "", valueSum: diff * num((map[it.productId] || {}).costSum),
-        });
-      }
-    });
-  });
-
-  return Object.values(map)
-    .map((m) => {
-      const closingQty = m.currentQty - m.afterQty;
-      const netPeriod = m.inQty - m.outQty + m.adjQty;
-      const openingQty = closingQty - netPeriod;
-      const movements = m.movements.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
-      return {
-        productId: m.productId, name: m.name, unit: m.unit, category: m.category,
-        openingQty, inQty: m.inQty, outQty: m.outQty, adjQty: m.adjQty, closingQty,
-        openingValue: openingQty * m.costSum,
-        inValue: movements.filter((x) => x.kind === "kirim").reduce((s, x) => s + num(x.valueSum), 0),
-        outValue: movements.filter((x) => x.kind === "chiqim").reduce((s, x) => s + num(x.valueSum), 0),
-        adjValue: movements.filter((x) => x.kind === "tuzatish").reduce((s, x) => s + num(x.valueSum), 0),
-        closingValue: closingQty * m.costSum,
-        movements,
-      };
-    })
-    .filter((r) => r.inQty || r.outQty || r.adjQty || r.openingQty || r.closingQty)
-    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function supplierDebts(data) {
@@ -584,6 +491,31 @@ function reverseDebtSettlement(d, kind, id, amountSum) {
   }
 }
 
+// "Usta xizmat haqi" kassa yozuvi (Usta hisobi'dagi "Yopish" orqali yaratilgan) o'chirilsa —
+// ustaning tegishli ustaLedger yozuvlari qaytadan "to'lanmagan" holatga qaytadi. Shogirt bilan
+// bo'lingan to'lovda ikki kassa yozuvi ("usta ulushi" + "shogirt ulushi") bir-biriga
+// ustaCloseId orqali bog'langan — ikkisidan qay birini o'chirsa, IKKALASI HAM birga
+// bekor qilinadi (aks holda faqat bittasi o'chib, ikkinchisi "osilib qolgan" pul bo'lib qolardi).
+function reverseUstaClose(d, entry) {
+  if (entry.ustaLedgerIds && entry.ustaLedgerIds.length) {
+    d.ustaLedger.forEach((e) => { if (entry.ustaLedgerIds.includes(e.id)) e.paid = false; });
+  }
+  if (entry.shogirtLedgerId) {
+    d.ustaLedger = d.ustaLedger.filter((e) => e.id !== entry.shogirtLedgerId);
+  }
+  if (entry.ustaCloseId) {
+    const pair = d.cashflow.find((c) => c.ustaCloseId === entry.ustaCloseId && c.id !== entry.id);
+    if (pair) {
+      if (pair.ustaLedgerIds && pair.ustaLedgerIds.length) {
+        d.ustaLedger.forEach((e) => { if (pair.ustaLedgerIds.includes(e.id)) e.paid = false; });
+      }
+      if (pair.shogirtLedgerId) {
+        d.ustaLedger = d.ustaLedger.filter((e) => e.id !== pair.shogirtLedgerId);
+      }
+      d.cashflow = d.cashflow.filter((c) => c.id !== pair.id);
+    }
+  }
+}
 
 function partnerBalances(data) {
   return data.partners.map((p) => {
@@ -615,6 +547,14 @@ function useActionLock() {
       setTimeout(() => { locked.current = false; }, 1500);
     }
   }, []);
+}
+
+// Usta shogirt (yordamchi) bilan ishlasa — usta hisobi (Kutilayotgan jami) hech qanday
+// o'zgarishsiz, to'liq holicha ko'rinadi (usta faqat kuzatadi). Shogirt ulushi FAQAT
+// kassir ustaning hisobini "Yopish" bosgan payt — taxminiy % (odatda 20%) sifatida
+// TAKLIF qilinadi, so'ngra kassir aniq summani o'zi (ko'proq yoki kamroq) belgilaydi.
+function apprenticeFor(apprentices, ustaName) {
+  return (apprentices || []).find((a) => sameName(a.usta, ustaName)) || null;
 }
 
 function ustaPendingByName(data) {
@@ -983,7 +923,13 @@ function Modal({ title, onClose, children, wide, xwide }) {
     };
   }, [onClose]);
 
-  return (
+  // v58'dagi header/tab panelidagi "blur" effekti (backdrop-filter) endi shu elementlarni
+  // pastdagi position:fixed bolalari uchun yangi "containing block" qilib qo'yadi — natijada
+  // header ichidan ochilgan oyna (masalan HeaderMenu'dagi Import/Export) butun ekranni emas,
+  // balki faqat 54px'lik header qutisini asos qilib joylashib, "yarim ko'rinadigan" bo'lib
+  // qolardi. document.body'ga portal orqali chiqarish buni har doim, qayerdan chaqirilishidan
+  // qat'i nazar, oldini oladi.
+  return typeof document === "undefined" ? null : createPortal(
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{
       position: "fixed", inset: 0, zIndex: 200,
       background: "rgba(38,31,20,.42)",
@@ -1012,10 +958,13 @@ function Modal({ title, onClose, children, wide, xwide }) {
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}><X size={17} /></button>
         </div>
-        {/* MAZMUN — faqat shu qism aylanadi (bitta scroll) */}
-        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>{children}</div>
+        {/* MAZMUN — faqat shu qism aylanadi (bitta scroll). minHeight:0 shart — aks holda
+            ichidagi katta elementlar (masalan qo'lda kattalashtirilgan textarea) flex konteynerni
+            o'zi bilan birga cho'zib, sarlavhani ekrandan chiqarib yuborishi mumkin. */}
+        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1216,7 +1165,7 @@ function JSONImportModal({ onClose, onImport }) {
         value={text} onChange={(e) => { setText(e.target.value); setError(""); }}
         placeholder="JSON matnini shu yerga joylang yoki faylni yuqoridan tanlang..."
         style={{
-          width: "100%", height: 240, padding: 12, borderRadius: 8,
+          width: "100%", height: 240, maxHeight: 420, padding: 12, borderRadius: 8,
           border: `1px solid ${error ? T.red : T.border2}`, background: T.s3, color: T.text,
           fontFamily: "monospace", fontSize: 11, resize: "vertical",
         }}
@@ -1271,7 +1220,7 @@ function StaffPinModal({ onClose }) {
     setError("");
     try {
       const authHeader = await authClient.getAuthHeader();
-      const res = await fetch("/api/staff", { headers: authHeader ? { Authorization: authHeader } : {} });
+      const res = await fetch(`/api/staff?branchId=${encodeURIComponent(authClient.branchId)}`, { headers: authHeader ? { Authorization: authHeader } : {} });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Ro'yxatni yuklab bo'lmadi");
       setStaff(json.staff || []);
@@ -1292,7 +1241,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/set-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email, pin }),
+        body: JSON.stringify({ email, pin, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Saqlanmadi");
@@ -1318,7 +1267,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/add", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email, fullName, role: newRole }),
+        body: JSON.stringify({ email, fullName, role: newRole, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "Qo'shilmadi");
@@ -1340,7 +1289,7 @@ function StaffPinModal({ onClose }) {
       const res = await fetch("/api/staff/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || "O'chirilmadi");
@@ -1372,7 +1321,7 @@ function StaffPinModal({ onClose }) {
                 value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
               <input style={{ ...iSt, flex: 1, minWidth: 140 }} placeholder="Ism-familiyasi"
                 value={newName} onChange={(e) => setNewName(e.target.value)} />
-              <Sel value={newRole} onChange={setNewRole} options={[
+              <Sel value={newRole} onChange={(e) => setNewRole(e.target.value)} options={[
                 { value: "kassir", label: "Kassir" },
                 { value: "sklad", label: "Sklad" },
               ]} />
@@ -1435,18 +1384,27 @@ function StaffPinModal({ onClose }) {
 
 function PinChangeModal({ pins, onClose, onSave }) {
   const [rahbar, setRahbar] = useState(pins.rahbar || "");
+  const [ustaStation, setUstaStation] = useState(pins.ustaStation || "");
   const [error, setError] = useState("");
 
   function isValid4Digit(v) { return /^\d{4}$/.test(v); }
 
   function handleSave() {
     if (!isValid4Digit(rahbar)) {
-      setError("PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      setError("Rahbar PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      return;
+    }
+    if (ustaStation && !isValid4Digit(ustaStation)) {
+      setError("Stansiya PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      return;
+    }
+    if (ustaStation && ustaStation === rahbar) {
+      setError("Stansiya PIN Rahbar PIN bilan bir xil bo'lmasligi kerak.");
       return;
     }
     // Kassir/Sklad PIN'lari endi ishlatilmaydi (ular Google orqali kiradi) — shu ikkalasini
-    // eski qiymatida o'zgarmasdan qoldiramiz, faqat Rahbar PIN'ni yangilaymiz.
-    onSave({ ...pins, rahbar });
+    // eski qiymatida o'zgarmasdan qoldiramiz, faqat Rahbar va Stansiya PIN'ni yangilaymiz.
+    onSave({ ...pins, rahbar, ustaStation });
     onClose();
   }
 
@@ -1464,6 +1422,22 @@ function PinChangeModal({ pins, onClose, onSave }) {
             autoFocus onFocus={(e) => e.target.select()}
           />
         </F>
+        <F label="Usta stansiyasi PIN (umumiy — planshet uchun)">
+          <input
+            type="text" inputMode="numeric" maxLength={4} style={iSt}
+            value={ustaStation} onChange={(e) => setUstaStation(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            placeholder="Masalan: 7788"
+            onFocus={(e) => e.target.select()}
+          />
+        </F>
+      </div>
+      <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginTop: 14 }}>
+        <p style={{ fontSize: 12, color: T.muted2, lineHeight: 1.6 }}>
+          <b>Stansiya PIN</b> — servisdagi planshetga shu kod bilan kiriladi. Bir nechta usta shu
+          bitta qurilmani baham ko'rishi mumkin: karta ochish/mahsulot qo'shishda kim ekanligi
+          so'ralmaydi, faqat ish haqi yozilganda har bir usta o'zining shaxsiy kodini
+          ("Usta kodlari" bo'limidan) kiritib, shu summani o'z hisobiga biriktiradi.
+        </p>
       </div>
       <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginTop: 14 }}>
         <p style={{ fontSize: 12, color: T.muted2, lineHeight: 1.6 }}>
@@ -1500,7 +1474,7 @@ function UstaCodesModal({ codes, data, onClose, onAdd, onRemove }) {
     if (!name.trim()) { setError("Usta ismini kiriting."); return; }
     if (!/^\d{4}$/.test(code)) { setError("Kod aynan 4 ta raqamdan iborat bo'lishi kerak."); return; }
     if (codes.some((c) => c.code === code)) { setError("Bu kod allaqachon band."); return; }
-    const reserved = [data.settings.pins?.rahbar, data.settings.pins?.kassir, data.settings.pins?.sklad].filter(Boolean);
+    const reserved = [data.settings.pins?.rahbar, data.settings.pins?.kassir, data.settings.pins?.sklad, data.settings.pins?.ustaStation].filter(Boolean);
     if (reserved.includes(code)) { setError("Bu kod umumiy rol PIN kodi sifatida band."); return; }
     if (codes.some((c) => sameName(c.name, name))) { setError("Bu usta uchun kod allaqachon mavjud."); return; }
     onAdd({ name: name.trim(), code });
@@ -1790,7 +1764,56 @@ function ResetAllConfirmModal({ data, onClose, onConfirm }) {
   );
 }
 
-function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
+// Har bir filial /app/<branchId>/page.js orqali, mustaqil manzilda ochiladi (BRANCH_LABELS
+// bilan mos). Bu ro'yxat kodda qo'lda yuritiladi — yangi filial qo'shilsa (yangi papka +
+// BRANCH_LABELS yozuvi), shu yerga ham bitta qator qo'shiladi.
+const BRANCH_LINKS = [
+  { id: "main", path: "/" },
+  { id: "filial2", path: "/filial2" },
+];
+
+function BranchesModal({ currentBranchId, onClose }) {
+  return (
+    <Modal title="Filiallar" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Har bir filial — bosh tizimdan butunlay mustaqil (o'z skladi, kassasi, kartalari,
+        xodimlari). Filial almashtirish uchun quyidagi manzilga o'ting.
+      </p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {BRANCH_LINKS.map((b) => {
+          const isCurrent = b.id === currentBranchId;
+          return (
+            <div key={b.id} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              background: isCurrent ? T.flameD : T.s3, border: `1px solid ${isCurrent ? T.flame + "40" : T.border}`,
+              borderRadius: 10, padding: "11px 15px",
+            }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: isCurrent ? T.flame : T.text }}>
+                  {BRANCH_LABELS[b.id] || b.id}
+                </div>
+                <div className="mo" style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{b.path}</div>
+              </div>
+              {isCurrent ? (
+                <Badge color={T.flame}>Hozir shu yerda</Badge>
+              ) : (
+                <a href={b.path} style={{
+                  fontSize: 12, fontWeight: 700, color: T.blue, textDecoration: "none",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>O'tish →</a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 11, color: T.muted, marginTop: 14, lineHeight: 1.5 }}>
+        Yangi filial ochish uchun (o'z manzili, xodimlari va PIN kodlari bilan) dasturchiga murojaat qiling.
+      </p>
+    </Modal>
+  );
+}
+
+function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId }) {
   const [open, setOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -1960,12 +1983,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll }) {
           onRemove={(id) => patch((d) => { d.settings.partnerCodes = (d.settings.partnerCodes || []).filter((c) => c.id !== id); return d; })}
         />
       )}
-      {branchesOpen && (
-        <BranchesModal branches={data.settings.branches || []} onClose={() => setBranchesOpen(false)}
-          onAdd={(branch) => patch((d) => { d.settings.branches = d.settings.branches || []; d.settings.branches.push({ id: uid(), ...branch }); return d; })}
-          onRemove={(id) => patch((d) => { d.settings.branches = (d.settings.branches || []).filter((b) => b.id !== id); return d; })}
-        />
-      )}
+      {branchesOpen && <BranchesModal currentBranchId={branchId} onClose={() => setBranchesOpen(false)} />}
     </div>
   );
 }
@@ -2420,7 +2438,7 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
       const res = await fetch("/api/verify-2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${pending.token}` },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok) {
@@ -2524,7 +2542,7 @@ function TwoFactorPinScreen({ pending, onCancel, onSuccess }) {
 /* ═══════════════════════════════════════════════════
    LOGIN SCREEN
 ═══════════════════════════════════════════════════ */
-function LoginScreen({ authError, onSuccess }) {
+function LoginScreen({ branchId, authError, onSuccess }) {
   const [digits, setDigits] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2605,7 +2623,7 @@ function LoginScreen({ authError, onSuccess }) {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: v }),
+        body: JSON.stringify({ pin: v, branchId: authClient.branchId }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok) {
@@ -2675,9 +2693,11 @@ function LoginScreen({ authError, onSuccess }) {
         .login-side{flex:none;width:460px;display:flex;align-items:center;justify-content:center;
           padding:40px 20px;position:relative;z-index:2}
         .login-mobile-info{display:none}
+        .login-mobile-logo{display:none}
         @media(max-width:960px){
           .login-hero{display:none}
           .login-side{width:100%}
+          .login-mobile-logo{display:flex;justify-content:center;margin-bottom:20px}
           .login-mobile-info{display:flex;gap:10px;margin-bottom:18px}
         }
       `}</style>
@@ -2700,10 +2720,10 @@ function LoginScreen({ authError, onSuccess }) {
             </p>
           </div>
           <div style={{
-            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 16, padding: "14px 20px",
-            boxShadow: "0 14px 32px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.5)",
+            display: "inline-flex", flexShrink: 0, background: "#FBFAF8", borderRadius: 13, padding: "10px 15px",
+            boxShadow: "0 10px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5)",
           }}>
-            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 69, width: "auto" }} />
+            <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 50, width: "auto" }} />
           </div>
         </div>
 
@@ -2737,6 +2757,14 @@ function LoginScreen({ authError, onSuccess }) {
 
       <div className="login-side">
         <div style={{ width: "100%", maxWidth: 380 }}>
+          <div className="login-mobile-logo">
+            <div style={{
+              display: "inline-flex", background: "#FBFAF8", borderRadius: 12, padding: "9px 14px",
+              boxShadow: "0 10px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.5)",
+            }}>
+              <img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 26, width: "auto" }} />
+            </div>
+          </div>
           <div className="login-mobile-info">
             <div style={{ flex: 1, background: "rgba(255,255,255,.04)", border: `1px solid ${LOGIN_T.border}`, borderRadius: 14, padding: "10px 14px" }}>
               <div className="mo" style={{ fontSize: 16, fontWeight: 800, color: LOGIN_T.text }}>
@@ -2762,6 +2790,13 @@ function LoginScreen({ authError, onSuccess }) {
                 Xush kelibsiz
               </div>
               <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: LOGIN_T.teal }}>{APP_VERSION}</div>
+              {branchId !== "main" && (
+                <div style={{
+                  display: "inline-flex", marginTop: 10, padding: "4px 12px", borderRadius: 20,
+                  background: `${LOGIN_T.flame}22`, border: `1px solid ${LOGIN_T.flame}40`,
+                  fontSize: 11, fontWeight: 700, color: LOGIN_T.flame, letterSpacing: ".03em",
+                }}>{BRANCH_LABELS[branchId] || branchId}</div>
+              )}
             </div>
 
             <div style={{ padding: "22px 30px 0" }}>
@@ -2832,7 +2867,7 @@ function LoginScreen({ authError, onSuccess }) {
                 color: LOGIN_T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
               }}>
                 <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
-                Usta / ta'minotchi / hamkor / rahbar — PIN
+                Usta / stansiya / ta'minotchi / hamkor / rahbar — PIN
                 <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
               </div>
 
@@ -2896,7 +2931,7 @@ function LoginScreen({ authError, onSuccess }) {
                 Kirish
               </button>
               <p style={{ fontSize: 10.5, color: LOGIN_T.muted, textAlign: "center", marginTop: 12, fontWeight: 600 }}>
-                4 xonali shaxsiy kod — usta, ta'minotchi yoki hamkor uchun
+                4 xonali kod — usta (shaxsiy), stansiya, ta'minotchi yoki hamkor uchun
               </p>
             </div>
           </div>
@@ -3022,16 +3057,21 @@ function PartnerPanelTab({ data, partnerId }) {
 /* ═══════════════════════════════════════════════════
    ROOT APP
 ═══════════════════════════════════════════════════ */
-const LOCAL_BACKUP_KEY = "avtogaz-v2-local-backup";
+const LOCAL_BACKUP_KEY_BASE = "avtogaz-v2-local-backup";
+// Bir xil brauzerda ikkala filial ham ochilishi mumkin (masalan Azim ikkalasini ham
+// boshqaradi) — localStorage butun saytga UMUMIY bo'lgani uchun, kalitga filial nomini
+// qo'shmasak, filial2'ni ochganda bosh filialning lokal zaxirasi noto'g'ri ishlatilib
+// qolardi (yoki aksincha).
+function localBackupKey() { return `${LOCAL_BACKUP_KEY_BASE}-${authClient.branchId}`; }
 
 function saveLocalBackup(data) {
-  try { localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({ data, savedAt: Date.now() })); }
+  try { localStorage.setItem(localBackupKey(), JSON.stringify({ data, savedAt: Date.now() })); }
   catch (e) { /* localStorage to'liq bo'lishi mumkin, jim o'tamiz */ }
 }
 
 function loadLocalBackup() {
   try {
-    const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
+    const raw = localStorage.getItem(localBackupKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed || null; // {data, savedAt} ni to'liq qaytaramiz
@@ -3042,13 +3082,17 @@ function isValidData(p) {
   return p && typeof p === "object" && Array.isArray(p.products) && Array.isArray(p.serviceCards);
 }
 
-export default function App() {
+export default function App({ branchId = "main" }) {
+  // Har bir filial (branch) — Supabase'da mustaqil qatorga ega. authClient
+  // shu qiymatni saqlab, storage/login/2FA/staff so'rovlariga qo'shib yuboradi
+  // (App() qayta chaqirilganda ham xavfsiz — shunchaki qiymatni yangilaydi).
+  authClient.setBranchId(branchId);
+
   const [data, setData] = useState(emptyData());
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error | conflict
   const [tab, setTab] = useState("dashboard");
   const [role, setRole] = useState(null);
-  const [staffName, setStaffName] = useState(null); // kirgan xodimning ismi (ish vaqti nazorati uchun) — azim/rahbar/kassir/sklad
   const [ustaName, setUstaName] = useState(null); // usta rolida kim ekanini bilish uchun (sessiya doirasida)
   const [supplierName, setSupplierName] = useState(null); // taminotchi rolida kim ekanini bilish uchun
   const [partnerId, setPartnerId] = useState(null); // hamkor rolida kim ekanini bilish uchun
@@ -3070,7 +3114,7 @@ export default function App() {
       try {
         const session = await authClient.getGoogleSession();
         if (session?.access_token) {
-          const res = await fetch("/api/whoami", {
+          const res = await fetch(`/api/whoami?branchId=${encodeURIComponent(authClient.branchId)}`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           const json = await res.json().catch(() => ({}));
@@ -3079,7 +3123,6 @@ export default function App() {
               setPending2FA({ token: session.access_token, role: json.role, email: json.email, fullName: json.fullName });
             } else {
               setRole(json.role);
-              setStaffName(json.fullName || null);
             }
           } else {
             await authClient.signOutGoogle();
@@ -3243,10 +3286,9 @@ export default function App() {
   const allTabs = [
     { id: "dashboard", label: "Bosh sahifa",  Icon: Zap,        roles: ["azim", "kassir"] },
     { id: "callcenter",label: "Qo'ng'iroqlar", Icon: PhoneCall,  roles: ["azim", "kassir"] },
-    { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad"] },
-    { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar", "sklad"] },
-    { id: "stockLedger", label: "Sklad nazorati", Icon: History, roles: ["azim", "kassir", "rahbar", "sklad"] },
-    { id: "ishvaqti",  label: "Ish vaqti",     Icon: Clock,      roles: ["azim", "rahbar", "sklad", "kassir"] },
+    { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad", "usta_station"] },
+    { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar"] },
+    { id: "quote",     label: "Kommertsiya taklifi", Icon: FileText, roles: ["azim", "kassir", "rahbar"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
     { id: "warranty",  label: "Kafolat",       Icon: ShieldCheck,roles: ["azim", "kassir"] },
@@ -3287,13 +3329,13 @@ export default function App() {
         authClient.setPinToken(token);
         setPending2FA(null);
         setRole(role);
-        setStaffName(name || null);
       }}
     />
   );
 
   if (!role) return (
     <LoginScreen
+      branchId={branchId}
       authError={authError}
       onSuccess={(r, name) => {
         setAuthError("");
@@ -3301,7 +3343,6 @@ export default function App() {
         if (r === "usta") setUstaName(name);
         else if (r === "taminotchi") setSupplierName(name);
         else if (r === "hamkor") setPartnerId(name);
-        else setStaffName(name || null);
       }}
     />
   );
@@ -3365,6 +3406,13 @@ export default function App() {
                 border: `1px solid ${T.teal}35`, borderRadius: 5, padding: "2px 6px",
                 letterSpacing: 0,
               }}>{APP_VERSION}</span>
+              {branchId !== "main" && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: T.flame, background: T.flameD,
+                  border: `1px solid ${T.flame}35`, borderRadius: 5, padding: "2px 6px",
+                  letterSpacing: 0, textTransform: "none",
+                }}>{BRANCH_LABELS[branchId] || branchId}</span>
+              )}
             </div>
             <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: ".1em", fontWeight: 600, marginTop: 2 }}>
               {(role === "usta" && ustaName ? ustaName.toUpperCase()
@@ -3428,7 +3476,7 @@ export default function App() {
           <div style={{ width: 1, height: 22, background: T.border }} className="hide-sm" />
 
           <HeaderMenu
-            role={role} rate={rate} patch={patch} data={data}
+            role={role} rate={rate} patch={patch} data={data} branchId={branchId}
             onImport={(p) => {
               const next = { ...emptyData(), ...p, settings: { ...emptyData().settings, ...(p.settings || {}) } };
               const actor = ustaName || supplierName || partnerId || role || "noma'lum";
@@ -3469,8 +3517,7 @@ export default function App() {
         {tab === "callcenter" && <CallCenterTab data={data} patch={patch} />}
         {tab === "services"   && <ServicesTab   data={data} patch={patch} rate={rate} role={role} ustaName={ustaName} saveState={saveState} />}
         {tab === "warehouse"  && <WarehouseTab  data={data} patch={patch} rate={rate} role={role} />}
-        {tab === "stockLedger" && <StockLedgerTab data={data} role={role} />}
-        {tab === "ishvaqti"   && <WorkTimeTab data={data} patch={patch} role={role} staffName={staffName} />}
+        {tab === "quote"      && <QuoteTab      data={data} patch={patch} />}
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
         {tab === "warranty"   && <WarrantyTab   data={data} patch={patch} rate={rate} />}
@@ -4515,8 +4562,10 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   const [viewCard, setViewCard] = useState(null); // to'liq tafsilotni ko'rish uchun
   const isUsta = role === "usta";
   const isSklad = role === "sklad"; // Sklad — usta kabi ko'radi/mahsulot biriktiradi, lekin narx/foydani ko'rmaydi va yakunlay olmaydi
+  const isStation = role === "usta_station"; // Umumiy planshet — hech bir ustaga qulflanmagan, ish haqi yozilganda shaxsiy kod so'raladi
   const isReadOnly = role === "rahbar"; // Rahbar faqat kuzatadi
-  const hideFinance = isUsta || isSklad;
+  const hideFinance = isUsta || isSklad || isStation;
+  const ustaCodes = data.settings.ustaCodes || [];
 
   const allCards = data.serviceCards;
   // Usta faqat o'ziga (o'z ismiga) tegishli kartalarni ko'radi
@@ -4605,6 +4654,19 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
     patch((d) => {
       const card = d.serviceCards.find((c) => c.id === cardId);
       if (card) card.ustaFeeEntries = (card.ustaFeeEntries || []).filter((e) => e.id !== feeId);
+      return d;
+    });
+  }
+  // Stansiya rejimi — ish haqi shaxsiy PIN bilan tasdiqlangach chaqiriladi.
+  // Karta hali hech kimga biriktirilmagan bo'lsa, shu tasdiqlagan usta uning egasi bo'ladi.
+  function addFeeStation(cardId, amount, note, confirmedUstaName) {
+    patch((d) => {
+      const card = d.serviceCards.find((c) => c.id === cardId);
+      if (card) {
+        if (!card.usta) card.usta = confirmedUstaName;
+        card.ustaFeeEntries = card.ustaFeeEntries || [];
+        card.ustaFeeEntries.push({ id: uid(), amount, note, date: todayISO() });
+      }
       return d;
     });
   }
@@ -4984,46 +5046,54 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         </div>
       )}
 
-      {/* SEARCH + CLOSED */}
-      <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
-        <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
-      </div>
+      {/* SEARCH + CLOSED — stansiyada kerak emas: bu umumiy planshet joriy ish bilan shug'ullanadi,
+          butun servisning yopilgan ishlar tarixini ko'rsatib o'tirmaydi. */}
+      {!isStation && (
+        <>
+          <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+            <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Raqam, mashina, telefon..." style={{ ...iSt, paddingLeft: 32 }} />
+          </div>
 
-      <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
-        <Tbl
-          empty="Yakunlangan karta yo'q"
-          cols={[
-            { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
-            { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
-            ...(!isUsta ? [
-              { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
-            ] : []),
-            { k: "carModel", h: "Mashina" },
-            { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
-            { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
-            ...(!hideFinance ? [
-              { k: "partsCost", h: "Tan narx", r: (r) => <span style={{ color: T.muted2 }}>{fmtSum(cardPartsCost(r))}</span> },
-            ] : []),
-            { k: "ustaFee", h: "Usta haqi", r: (r) => <span style={{ color: T.gold }}>{fmtSum(cardUstaFeeSum(r))}</span> },
-            ...(!hideFinance ? [
-              { k: "finalTotal", h: "Yakuniy", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(r.finalTotal)}</span> },
-              { k: "profitSum", h: "Foyda", r: (r) => <span className="mo" style={{ fontWeight: 700, color: num(r.profitSum) >= 0 ? T.teal : T.red }}>{fmtSum(r.profitSum)}</span> },
-            ] : []),
-            { k: "view", h: "", r: (r) => <button onClick={() => setViewCard(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.blue }}><Search size={13} /></button> },
-            ...(!hideFinance ? [
-              { k: "edit", h: "", r: (r) => <button onClick={() => setEditPinOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
-              { k: "del", h: "", r: (r) => <button onClick={() => deleteCard(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
-            ] : []),
-          ]}
-          rows={closedCards}
-        />
-      </Card>
+          <Card title={`Yakunlangan kartalar (${closedCards.length})`} pad={false}>
+            <div style={{ padding: "14px 18px" }}>
+            <DateGroupedList
+              empty="Yakunlangan karta yo'q"
+              amountFn={hideFinance ? null : (r) => num(r.profitSum)}
+              cols={[
+                { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
+                { k: "plate", h: "Raqam", r: (r) => <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{r.plate}</span> },
+                ...(!isUsta ? [
+                  { k: "phone", h: "Telefon", r: (r) => <span className="mo" style={{ fontSize: 12 }}>{r.phone || "—"}</span> },
+                ] : []),
+                { k: "carModel", h: "Mashina" },
+                { k: "serviceType", h: "Xizmat", r: (r) => <Badge color={SERVICE_COLORS[r.serviceType] || T.blue}>{r.serviceType}</Badge> },
+                { k: "usta", h: "Usta", r: (r) => r.usta || "—" },
+                ...(!hideFinance ? [
+                  { k: "partsCost", h: "Tan narx", r: (r) => <span style={{ color: T.muted2 }}>{fmtSum(cardPartsCost(r))}</span> },
+                ] : []),
+                { k: "ustaFee", h: "Usta haqi", r: (r) => <span style={{ color: T.gold }}>{fmtSum(cardUstaFeeSum(r))}</span> },
+                ...(!hideFinance ? [
+                  { k: "finalTotal", h: "Yakuniy", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(r.finalTotal)}</span> },
+                  { k: "profitSum", h: "Foyda", r: (r) => <span className="mo" style={{ fontWeight: 700, color: num(r.profitSum) >= 0 ? T.teal : T.red }}>{fmtSum(r.profitSum)}</span> },
+                ] : []),
+                { k: "view", h: "", r: (r) => <button onClick={() => setViewCard(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.blue }}><Search size={13} /></button> },
+                ...(!hideFinance ? [
+                  { k: "edit", h: "", r: (r) => <button onClick={() => setEditPinOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
+                  { k: "del", h: "", r: (r) => <button onClick={() => deleteCard(r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Trash2 size={13} /></button> },
+                ] : []),
+              ]}
+              rows={closedCards}
+            />
+            </div>
+          </Card>
+        </>
+      )}
 
       {viewCard && <CardDetailModal card={viewCard} isUsta={hideFinance} onClose={() => setViewCard(null)} />}
 
-      {newOpen && <NewCardModal data={data} isUsta={isUsta} ustaName={ustaName} onClose={() => setNewOpen(false)} onSave={createCard} />}
+      {newOpen && <NewCardModal data={data} isUsta={isUsta} isStation={isStation} ustaName={ustaName} onClose={() => setNewOpen(false)} onSave={createCard} />}
       {workCard && (
         <CardWorkspace
           card={data.serviceCards.find((c) => c.id === workCard.id) || workCard}
@@ -5032,11 +5102,13 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
           rate={rate}
           saveState={saveState}
           noteSuggestions={noteSuggestions}
+          ustaCodes={ustaCodes}
           onClose={() => setWorkCard(null)}
           onAddPart={(p) => addPart(workCard.id, p)}
           onAddNewProduct={(prod, qty, useSale) => addNewProductAndPart(workCard.id, prod, qty, useSale)}
           onRemovePart={(i) => removePart(workCard.id, i)}
           onAddFee={(a, n) => addFee(workCard.id, a, n)}
+          onAddFeeStation={(a, n, u) => addFeeStation(workCard.id, a, n, u)}
           onRemoveFee={(id) => removeFee(workCard.id, id)}
           onFinalize={(fin) => closeCard(workCard.id, fin)}
           onProductRequest={(req) => sendProductRequest(workCard.id, req)}
@@ -5057,7 +5129,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
   );
 }
 
-function NewCardModal({ data, isUsta, ustaName, onClose, onSave }) {
+function NewCardModal({ data, isUsta, isStation, ustaName, onClose, onSave }) {
   const ustaNames = ustaNameOptions(data);
   const [f, setF] = useState({
     date: todayISO(), plate: "", phone: "", carModel: "", usta: isUsta ? (ustaName || "") : "",
@@ -5091,6 +5163,9 @@ function NewCardModal({ data, isUsta, ustaName, onClose, onSave }) {
         <F label="Usta ismi" col="1/-1">
           {isUsta ? (
             <input style={{ ...iSt, background: T.s3, color: T.muted }} value={f.usta} disabled readOnly />
+          ) : isStation ? (
+            <input style={{ ...iSt, background: T.s3, color: T.muted }} value=""
+              placeholder="Ish haqi kiritilganda, ustaning shaxsiy kodi bilan aniqlanadi" disabled readOnly />
           ) : (
             <>
               <input style={iSt} value={f.usta} onChange={set("usta")} list="usta-list" placeholder="Usta ismi" />
@@ -5309,15 +5384,17 @@ function EditFinishedCardModal({ card, products, ustaNames, onClose, onSave }) {
   );
 }
 
-function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions, onClose, onAddPart, onAddNewProduct, onRemovePart, onAddFee, onRemoveFee, onFinalize, onProductRequest }) {
+function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions, ustaCodes, onClose, onAddPart, onAddNewProduct, onRemovePart, onAddFee, onAddFeeStation, onRemoveFee, onFinalize, onProductRequest }) {
   const isUsta = role === "usta";
   const isSklad = role === "sklad";
-  const hideFinance = isUsta || isSklad; // Sklad ham narx/foyda va yakunlashni ko'rmaydi, faqat mahsulot biriktiradi
+  const isStation = role === "usta_station";
+  const hideFinance = isUsta || isSklad || isStation; // Sklad/stansiya ham narx/foyda ko'rmaydi, faqat mahsulot/ish haqi biriktiradi
   const [productId, setProductId] = useState(products[0]?.id || "");
   const [qty, setQty] = useState(1);
   const [feeAmount, setFeeAmount] = useState("");
   const [feeNote, setFeeNote] = useState("");
   const [finalizing, setFinalizing] = useState(false);
+  const [pinConfirm, setPinConfirm] = useState(null); // {amount, note} — stansiya rejimida ish haqi tasdig'ini kutmoqda
   const [reqName, setReqName] = useState("");
   const [reqQty, setReqQty] = useState(1);
   const [reqNote, setReqNote] = useState("");
@@ -5371,7 +5448,19 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
     setAddFeeError("");
     const a = num(feeAmount);
     if (a <= 0) { setAddFeeError("Summani to'g'ri kiriting (masalan: 50000)."); return; }
+    if (isStation) {
+      // Stansiya rejimida summa darhol yozilmaydi — avval qaysi usta ekanini
+      // shaxsiy PIN kod bilan tasdiqlash kerak (StationPinConfirmModal).
+      setPinConfirm({ amount: a, note: feeNote.trim() });
+      return;
+    }
     onAddFee(a, feeNote.trim());
+    setFeeAmount(""); setFeeNote("");
+  }
+
+  function handleStationPinConfirmed(confirmedUstaName) {
+    onAddFeeStation(pinConfirm.amount, pinConfirm.note, confirmedUstaName);
+    setPinConfirm(null);
     setFeeAmount(""); setFeeNote("");
   }
 
@@ -5387,8 +5476,11 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
   }
 
   if (finalizing)
-    return <FinalizeModal card={card} partsCost={partsCost} feeSum={feeSum} rate={rate}
-      onBack={() => setFinalizing(false)} onClose={onClose} onSave={onFinalize} />;
+    return isStation
+      ? <StationFinalizeModal card={card} partsCost={partsCost} feeSum={feeSum}
+          onBack={() => setFinalizing(false)} onClose={onClose} onSave={onFinalize} />
+      : <FinalizeModal card={card} partsCost={partsCost} feeSum={feeSum} rate={rate}
+          onBack={() => setFinalizing(false)} onClose={onClose} onSave={onFinalize} />;
 
   return (
     <Modal title={`${card.plate} — ${card.carModel || ""}`} onClose={onClose} wide>
@@ -5502,7 +5594,7 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
         </div>
       )}
       {/* USTA UCHUN QO'SHIMCHA — skladda yo'q mahsulot uchun so'rov */}
-      {isUsta && (
+      {(isUsta || isStation) && (
         <div style={{ background: T.goldD, border: `1px solid ${T.gold}30`, borderRadius: 11, padding: 15, marginBottom: 14 }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.gold, marginBottom: 10 }}>
             Skladda yo'q mahsulot — Kassirga so'rov
@@ -5524,8 +5616,15 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
       {/* USTA HAQI — hamma rol uchun ochiq, lekin Detailingda ko'rinmaydi (kelishuv summasidan hisoblanadi) */}
       {card.serviceType !== "Detailing" ? (
       <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 11, padding: 15, marginBottom: 16 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted2, marginBottom: 10 }}>
-          Usta xizmat haqi
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted2 }}>
+            Usta xizmat haqi
+          </div>
+          {isStation && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: card.usta ? T.teal : T.muted }}>
+              {card.usta ? `👤 ${card.usta}` : "Hali biriktirilmagan"}
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: fees.length ? 12 : 0, flexWrap: "wrap" }}>
           <input type="number" style={{ ...iSt, flex: 1, minWidth: 110 }} placeholder="Summa"
@@ -5584,13 +5683,167 @@ function CardWorkspace({ card, products, role, rate, saveState, noteSuggestions,
             Yopsangiz ham ma'lumotlar saqlanadi — keyinroq davom ettirasiz
           </p>
         </>
+      ) : isStation && card.serviceType === "Servis" ? (
+        <SaveBtn onClick={() => setFinalizing(true)} color={T.flame}>
+          <Check size={16} /> Yakunlash
+        </SaveBtn>
       ) : (
         <p style={{ fontSize: 12, color: T.muted, textAlign: "center", marginTop: 9, padding: "10px 14px", background: T.s3, borderRadius: 8 }}>
           {isSklad
             ? "Mahsulot biriktirildi. Narxlash va yakunlash uchun kartani Kassaga yuboring — Kassir/Admin yakunlaydi."
-            : "Xizmat haqingiz yozildi. Kartani yakunlash uchun Kassir/Adminga murojaat qiling."}
+            : isStation
+              ? "Bu turdagi xizmatni yakunlash uchun Kassir/Adminga murojaat qiling."
+              : "Xizmat haqingiz yozildi. Kartani yakunlash uchun Kassir/Adminga murojaat qiling."}
         </p>
       )}
+
+      {pinConfirm && (
+        <StationPinConfirmModal
+          ustaCodes={ustaCodes} amount={pinConfirm.amount}
+          plate={card.plate} carModel={card.carModel} existingUsta={card.usta}
+          onCancel={() => setPinConfirm(null)}
+          onConfirm={handleStationPinConfirmed}
+        />
+      )}
+    </Modal>
+  );
+}
+
+/* Stansiya rejimida ish haqi yozilganda — kim ekanini shaxsiy PIN kod bilan tasdiqlaydi.
+   Kod ustaCodes'dan topilsa, shu summa o'sha ustaning hisobiga biriktiriladi. */
+function StationPinConfirmModal({ ustaCodes, amount, plate, carModel, existingUsta, onCancel, onConfirm }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  function check(code) {
+    const match = (ustaCodes || []).find((u) => u.code === code);
+    if (!match) { setError("Kod topilmadi — qaytadan urinib ko'ring."); setPin(""); return; }
+    if (existingUsta && !sameName(existingUsta, match.name)) {
+      setError(`Bu karta allaqachon ${existingUsta} ustaga biriktirilgan.`);
+      setPin("");
+      return;
+    }
+    onConfirm(match.name);
+  }
+
+  function press(d) {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError("");
+    if (next.length === 4) check(next);
+  }
+
+  const keyStyle = {
+    height: 56, borderRadius: 13, background: T.s2, border: `1px solid ${T.border}`,
+    fontFamily: "'Barlow Condensed',sans-serif", fontSize: 22, fontWeight: 700, cursor: "pointer",
+  };
+
+  return (
+    <Modal title="Ishni tasdiqlash" onClose={onCancel}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+        <span className="mo" style={{ fontSize: 12, fontWeight: 600, color: T.muted2, background: T.s3, borderRadius: 999, padding: "7px 16px" }}>
+          {plate} · {carModel || "—"}
+        </span>
+      </div>
+      <p style={{ fontSize: 12.5, color: T.muted, textAlign: "center", marginBottom: 14, lineHeight: 1.5 }}>
+        Bu summa PIN kodingiz bilan sizning hisobingizga yoziladi
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+        <span className="mo" style={{ fontSize: 22, fontWeight: 700, color: T.gold, background: T.goldD, borderRadius: 12, padding: "10px 20px" }}>
+          {fmtSum(amount)}
+        </span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 18 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{
+            width: 15, height: 15, borderRadius: "50%",
+            background: i < pin.length ? T.flame : "transparent",
+            border: `2px solid ${i < pin.length ? T.flame : T.border2}`,
+          }} />
+        ))}
+      </div>
+      {error && <p style={{ color: T.red, fontSize: 12, textAlign: "center", marginBottom: 10 }}>{error}</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, maxWidth: 260, margin: "0 auto" }}>
+        {digits.map((d) => (
+          <button key={d} onClick={() => press(String(d))} style={keyStyle}>{d}</button>
+        ))}
+        <div />
+        <button onClick={() => press("0")} style={keyStyle}>0</button>
+        <button onClick={() => { setPin((p) => p.slice(0, -1)); setError(""); }} style={{
+          ...keyStyle, background: "none", border: "none",
+          display: "flex", alignItems: "center", justifyContent: "center", color: T.muted,
+        }}><Delete size={20} /></button>
+      </div>
+      <p style={{ fontSize: 11, color: T.muted, textAlign: "center", marginTop: 16 }}>
+        Faqat SIZNING kodingiz — boshqa usta bu ishni o'ziga biriktira olmaydi.
+      </p>
+    </Modal>
+  );
+}
+
+/* Stansiya rejimida "Servis" turdagi kartani usta o'zi yakunlaydi — mahsulot (sotuv narxida)
+   + ish haqi × 1.20 (20%i xizmat ustamasi, servis foydasi). Mijozga faqat yakuniy summa
+   ko'rsatiladi, ustama alohida ajratilmaydi. */
+function StationFinalizeModal({ card, partsCost, feeSum, onBack, onClose, onSave }) {
+  const [paymentType, setPaymentType] = useState(PAYMENT_TYPES[0]);
+  const [submitted, setSubmitted] = useState(false);
+
+  const partsCostBuy = (card.parts || []).reduce((s, p) => s + num(p.qty) * num(p.costUnit ?? p.unitCost ?? 0), 0);
+  const surcharge = Math.round(feeSum * 0.2);
+  const finalTotal = Math.max(0, partsCost + feeSum + surcharge);
+  const profitSum = finalTotal - partsCostBuy - feeSum;
+
+  function save() {
+    if (submitted) return;
+    setSubmitted(true);
+    onSave({ finalTotal, ustaFee: feeSum, docFee: 0, profitSum, paymentType, hasWarranty: false, warrantyMonths: 0 });
+  }
+
+  return (
+    <Modal title={`Yakunlash — ${card.plate}`} onClose={onClose} wide>
+      <button onClick={onBack} style={{
+        background: "none", border: "none", cursor: "pointer",
+        color: T.muted, fontSize: 12, marginBottom: 14, padding: 0,
+      }}>← Orqaga (davom ettirish)</button>
+
+      <div style={{ background: T.s2, borderRadius: 12, padding: "18px 20px", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0" }}>
+          <span style={{ fontSize: 13, color: T.muted2 }}>Mahsulot jami</span>
+          <span className="mo" style={{ fontSize: 14, fontWeight: 600 }}>{fmtSum(partsCost)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0" }}>
+          <span style={{ fontSize: 13, color: T.muted2 }}>Usta ish haqi</span>
+          <span className="mo" style={{ fontSize: 14, fontWeight: 600 }}>{fmtSum(feeSum + surcharge)}</span>
+        </div>
+        <div style={{ borderTop: `2px solid ${T.border2}`, marginTop: 8, paddingTop: 14, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span className="bc" style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em", color: T.muted2 }}>Yakuniy summa</span>
+          <span className="mo" style={{ fontSize: 30, fontWeight: 800, color: T.flame }}>{fmtSum(finalTotal)}</span>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginBottom: 8 }}>To'lov turi</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {[PAYMENT_TYPES[0], PAYMENT_TYPES[1]].map((pt) => (
+            <button key={pt} onClick={() => setPaymentType(pt)} style={{
+              padding: "14px 16px", borderRadius: 12, cursor: "pointer", textAlign: "left",
+              border: `2px solid ${paymentType === pt ? T.flame : T.border}`,
+              background: paymentType === pt ? T.flameD : T.s1,
+              fontSize: 13, fontWeight: 700, color: T.text,
+            }}>{pt}</button>
+          ))}
+        </div>
+      </div>
+
+      <SaveBtn onClick={save} color={T.flame} disabled={submitted}>
+        <Check size={16} /> {submitted ? "Saqlanmoqda..." : "Yakunlash"}
+      </SaveBtn>
+
+      <p style={{ fontSize: 11, color: T.muted, textAlign: "center", marginTop: 12 }}>
+        Bu ma'lumot avtomatik Kassaga yoziladi.
+      </p>
     </Modal>
   );
 }
@@ -5851,6 +6104,302 @@ function FinalizeModal({ card, partsCost, feeSum, rate, onBack, onClose, onSave 
   );
 }
 
+/* ─── KOMMERTSIYA TAKLIFI — mijozga narx-taklif, avtomobilga individual ───
+   Mustaqil komponent: umumiy `data` bazasiga hech narsa yozmaydi, faqat
+   Sklad ro'yxatini o'qiydi — shu sababli boshqa hech qaysi hisob-kitobga
+   ta'sir qilmaydi. Faqat shu ekranda ishlaydi, Excel sifatida chiqariladi. */
+function QuoteTab({ data, patch }) {
+  const products = data.products || [];
+  const savedQuotes = data.commercialOffers || [];
+  const [currentQuoteId, setCurrentQuoteId] = useState(null);
+  const [customerName, setCustomerName] = useState("");
+  const [carInfo, setCarInfo] = useState("");
+  const [items, setItems] = useState([]);
+  const [pickProductId, setPickProductId] = useState("");
+  const [profitPercent, setProfitPercent] = useState("0");
+  const [savedMsg, setSavedMsg] = useState("");
+
+  const profit = num(profitPercent);
+  const productItems = items.filter((it) => it.kind === "mahsulot");
+  const ustaItems = items.filter((it) => it.kind === "usta");
+  // Mahsulot — Skladdagi TANNARX bo'yicha, Usta xizmati — to'g'ridan kiritilgan haq.
+  // Ikkalasi qo'shilib "umumiy tannarx"ni tashkil qiladi, ustiga Servis o'z
+  // foydasini foiz sifatida qo'shadi — shu mijozga taqdim etiladigan narx bo'ladi.
+  const productCostTotal = productItems.reduce((s, it) => s + num(it.qty) * num(it.priceSum), 0);
+  const ustaTotal = ustaItems.reduce((s, it) => s + num(it.qty) * num(it.priceSum), 0);
+  const baseCostTotal = productCostTotal + ustaTotal;
+  const servisFoyda = baseCostTotal * (profit / 100);
+  const total = baseCostTotal + servisFoyda;
+
+  function addFromSklad() {
+    const p = products.find((x) => x.id === pickProductId);
+    if (!p) return;
+    setItems((prev) => [...prev, {
+      id: uid(), kind: "mahsulot", name: p.name, unit: p.unit || "dona",
+      qty: 1, priceSum: num(p.costSum), source: "sklad", productId: p.id,
+    }]);
+    setPickProductId("");
+  }
+
+  function addManual() {
+    setItems((prev) => [...prev, { id: uid(), kind: "mahsulot", name: "", unit: "dona", qty: 1, priceSum: 0, source: "manual" }]);
+  }
+
+  function addUstaXizmati() {
+    setItems((prev) => [...prev, { id: uid(), kind: "usta", name: "", unit: "xizmat", qty: 1, priceSum: 0, source: "manual" }]);
+  }
+
+  function updateItem(id, field, value) {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, [field]: value } : it)));
+  }
+
+  function removeItem(id) {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+  }
+
+  // Skladdan olingan har bir qatorning narxini Skladdagi ENG SO'NGGI tannarxga
+  // yangilaydi — narxlar o'zgargan bo'lsa, taklif shu bosim bilan qayta hisoblanadi.
+  // Qo'lda kiritilgan va Usta xizmati qatorlariga tegmaydi (ularning Skladda
+  // manbasi yo'q).
+  function recalcPrices() {
+    let changed = 0;
+    setItems((prev) => prev.map((it) => {
+      if (it.source !== "sklad" || !it.productId) return it;
+      const p = products.find((x) => x.id === it.productId);
+      if (!p) return it;
+      if (num(p.costSum) !== num(it.priceSum)) changed++;
+      return { ...it, priceSum: num(p.costSum), name: p.name, unit: p.unit || it.unit };
+    }));
+    setSavedMsg(changed > 0 ? `${changed} ta narx yangilandi — endi "Saqlash"ni bosing` : "Narxlar allaqachon dolzarb");
+    setTimeout(() => setSavedMsg(""), 4000);
+  }
+
+  function resetForm() {
+    setCurrentQuoteId(null);
+    setCustomerName("");
+    setCarInfo("");
+    setItems([]);
+    setProfitPercent("0");
+  }
+
+  function loadQuote(q) {
+    setCurrentQuoteId(q.id);
+    setCustomerName(q.customerName || "");
+    setCarInfo(q.carInfo || "");
+    setItems(q.items || []);
+    setProfitPercent(String(q.profitPercent ?? 0));
+  }
+
+  function saveQuote() {
+    const qid = currentQuoteId || uid();
+    const quoteObj = {
+      id: qid, date: todayISO(), customerName, carInfo,
+      profitPercent: profit, items, total,
+    };
+    patch((d) => {
+      d.commercialOffers = d.commercialOffers || [];
+      const idx = d.commercialOffers.findIndex((x) => x.id === qid);
+      if (idx >= 0) d.commercialOffers[idx] = quoteObj;
+      else d.commercialOffers.unshift(quoteObj);
+      return d;
+    });
+    setCurrentQuoteId(qid);
+    setSavedMsg("Saqlandi");
+    setTimeout(() => setSavedMsg(""), 2500);
+  }
+
+  function deleteQuote(id) {
+    patch((d) => {
+      d.commercialOffers = (d.commercialOffers || []).filter((x) => x.id !== id);
+      return d;
+    });
+    if (currentQuoteId === id) resetForm();
+  }
+
+  function exportExcel() {
+    const rows = [];
+    rows.push(["Kommertsiya taklifi"]);
+    rows.push([`Sana: ${fmtDate(todayISO())}`]);
+    if (customerName.trim()) rows.push([`Mijoz: ${customerName.trim()}`]);
+    if (carInfo.trim()) rows.push([`Avtomobil: ${carInfo.trim()}`]);
+    rows.push([]);
+    rows.push(["№", "Turi", "Nomi", "Birlik", "Miqdor", "Narx", "Jami"]);
+    items.forEach((it, i) => {
+      rows.push([i + 1, it.kind === "usta" ? "Usta xizmati" : "Mahsulot", it.name || "—", it.unit, num(it.qty), num(it.priceSum), num(it.qty) * num(it.priceSum)]);
+    });
+    rows.push([]);
+    rows.push(["", "", "", "", "", "Mahsulot tannarxi:", productCostTotal]);
+    rows.push(["", "", "", "", "", "Usta xizmati:", ustaTotal]);
+    rows.push(["", "", "", "", "", "Umumiy tannarx:", baseCostTotal]);
+    rows.push(["", "", "", "", "", `Servis foydasi (${profit}%):`, servisFoyda]);
+    rows.push(["", "", "", "", "", "Umumiy summa:", total]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 5 }, { wch: 12 }, { wch: 32 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Taklif");
+    const safeCust = customerName.trim()
+      ? "-" + customerName.trim().replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 24)
+      : "";
+    XLSX.writeFile(wb, `kommertsiya-taklif${safeCust}-${todayISO()}.xlsx`);
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Kommertsiya taklifi</h2>
+          <p style={{ color: T.muted, fontSize: 12, marginTop: 3, maxWidth: 640 }}>
+            Har bir avtomobil uchun alohida narx-taklif tuzing — Skladdagi mahsulotlarni tanlang
+            yoki qo'lda kiriting, narxlarni tahrirlang va Excel sifatida yuklab oling.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {savedMsg && <span style={{ fontSize: 12, color: T.teal, fontWeight: 600 }}>{savedMsg}</span>}
+          {currentQuoteId && <Btn variant="ghost" size="sm" onClick={resetForm}><Plus size={13} /> Yangi taklif</Btn>}
+        </div>
+      </div>
+
+      {savedQuotes.length > 0 && (
+        <>
+          <Card title={`Saqlangan takliflar (${savedQuotes.length} ta)`}>
+            <div style={{ display: "grid", gap: 6 }}>
+              {savedQuotes.map((q) => (
+                <div key={q.id} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                  padding: "8px 10px", borderRadius: 8,
+                  background: q.id === currentQuoteId ? T.goldD : "transparent",
+                }}>
+                  <div style={{ fontSize: 12.5 }}>
+                    <b>{q.customerName || "Mijoz ko'rsatilmagan"}</b>
+                    {q.carInfo && <span style={{ color: T.muted }}> — {q.carInfo}</span>}
+                    <span style={{ color: T.muted }}> · {fmtDate(q.date)} · {fmtSum(q.total)}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Btn size="sm" variant="ghost" onClick={() => loadQuote(q)}>Ochish</Btn>
+                    <button onClick={() => deleteQuote(q.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <div style={{ height: 14 }} />
+        </>
+      )}
+
+      <Card title="Mijoz va avtomobil ma'lumotlari">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+          <F label="Mijoz (ixtiyoriy)">
+            <input style={iSt} value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Mijoz ismi / kompaniya" />
+          </F>
+          <F label="Avtomobil (ixtiyoriy)">
+            <input style={iSt} value={carInfo} onChange={(e) => setCarInfo(e.target.value)} placeholder="Masalan: Chevrolet Cobalt, 01A123AA" />
+          </F>
+          <F label="Servis foydasi (%) — umumiy tannarxga">
+            <input type="number" style={iSt} value={profitPercent} onChange={(e) => setProfitPercent(e.target.value)} placeholder="0" />
+          </F>
+        </div>
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <div style={{
+        background: T.s1, border: `1px solid ${T.border}`, borderRadius: 14,
+        position: "relative", overflow: "visible",
+      }}>
+        <div style={{
+          padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
+          minHeight: 46, display: "flex", alignItems: "center",
+          background: `linear-gradient(180deg,${T.s2},${T.s3})`,
+          borderRadius: "14px 14px 0 0",
+        }}>
+          <span className="bc" style={{ fontSize: 14.5, fontWeight: 700 }}>Skladdan qo'shish</span>
+        </div>
+        <div style={{ padding: "16px 18px", position: "relative", overflow: "visible" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ flex: 1, minWidth: 220, position: "relative" }}>
+              {products.length ? (
+                <SearchSelect value={pickProductId} onChange={setPickProductId} placeholder="Mahsulot nomini yozing..."
+                  options={products.map((p) => ({ value: p.id, label: p.name, sub: `Tannarx: ${fmtSum(p.costSum)} · qoldiq: ${p.qty} ${p.unit}` }))} />
+              ) : (
+                <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
+              )}
+            </div>
+            <Btn variant="ghost" disabled={!pickProductId} onClick={addFromSklad}><Plus size={14} /> Qo'shish</Btn>
+            <Btn variant="ghost" onClick={addManual}><Plus size={14} /> Qo'lda mahsulot</Btn>
+            <Btn variant="ghost" onClick={addUstaXizmati}><Wrench size={14} /> Usta xizmati qo'shish</Btn>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ height: 14 }} />
+
+      <Card title={`Taklif tarkibi (${items.length} ta)`}>
+        {items.length === 0 ? (
+          <p style={{ color: T.muted, fontSize: 13 }}>Hali hech narsa qo'shilmagan.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 80px 110px 110px 32px", gap: 8, fontSize: 10, fontWeight: 700, color: T.muted2, textTransform: "uppercase", letterSpacing: ".06em", padding: "0 4px" }}>
+              <div>Turi</div><div>Nomi</div><div>Birlik</div><div>Miqdor</div><div>Narx</div><div>Jami</div><div />
+            </div>
+            {items.map((it) => (
+              <div key={it.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 80px 110px 110px 32px", gap: 8, alignItems: "center" }}>
+                <Badge color={it.kind === "usta" ? T.teal : T.blue}>{it.kind === "usta" ? "Usta" : "Mahsulot"}</Badge>
+                <input style={iSt} value={it.name} onChange={(e) => updateItem(it.id, "name", e.target.value)}
+                  placeholder={it.kind === "usta" ? "Xizmat nomi (masalan: O'rnatish)" : "Nomi"} />
+                <input style={iSt} value={it.unit} onChange={(e) => updateItem(it.id, "unit", e.target.value)} />
+                <input type="number" style={iSt} value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)} />
+                <input type="number" style={iSt} value={it.priceSum} onChange={(e) => updateItem(it.id, "priceSum", e.target.value)} />
+                <div style={{ fontWeight: 700, color: T.gold, fontSize: 13 }}>{fmtSum(num(it.qty) * num(it.priceSum))}</div>
+                <button onClick={() => removeItem(it.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red }}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <Card title="Yakuniy hisob-kitob">
+        <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: T.muted }}>Mahsulot tannarxi</span><span>{fmtSum(productCostTotal)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: T.muted }}>Usta xizmati</span><span>{fmtSum(ustaTotal)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+            <span style={{ color: T.muted }}>Umumiy tannarx</span><span style={{ fontWeight: 700 }}>{fmtSum(baseCostTotal)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: T.muted }}>Servis foydasi ({profit}%)</span><span style={{ color: T.teal }}>+{fmtSum(servisFoyda)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${T.border}`, paddingTop: 8, fontSize: 16, fontWeight: 800 }}>
+            <span>Mijozga narx</span><span style={{ color: T.gold }}>{fmtSum(total)}</span>
+          </div>
+        </div>
+      </Card>
+
+      <div style={{ height: 14 }} />
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+        <Btn variant="ghost" disabled={items.length === 0} onClick={recalcPrices}>
+          <RefreshCw size={15} /> Narxlarni qayta hisoblash
+        </Btn>
+        <Btn variant="teal" disabled={items.length === 0} onClick={saveQuote}>
+          <Save size={15} /> Saqlash
+        </Btn>
+        <Btn variant="gold" disabled={items.length === 0} onClick={exportExcel}>
+          <Download size={15} /> Excel yuklab olish
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════
    AVTOGAZ v2 — QISM 2
    Part 1 fayliga shu komponentlarni qo'shing (App() dagi
@@ -5868,6 +6417,7 @@ function WarehouseTab({ data, patch, rate, role }) {
   const isReadOnly = role === "rahbar"; // Rahbar faqat kuzatadi
   const [stockOpen, setStockOpen] = useState(false);
   const [saleOpen, setSaleOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [invOpen, setInvOpen] = useState(false);
   const [invReqOpen, setInvReqOpen] = useState(false);
   const [respondReq, setRespondReq] = useState(null);
@@ -5940,7 +6490,7 @@ function WarehouseTab({ data, patch, rate, role }) {
       if (entry.updatePrice) { product.priceSum = entry.priceSum; product.priceUsd = entry.priceUsd; }
 
       d.stockIns.unshift({
-        id: uid(), date: entry.date, time: nowTime(), productId: product.id, productName: product.name, qty: entry.qty, unit: product.unit,
+        id: uid(), date: entry.date, productId: product.id, productName: product.name, qty: entry.qty, unit: product.unit,
         currency: entry.currency, unitCostSum: entry.unitCostSum, totalSum: entry.totalSum,
         unitCostOriginal: entry.unitCostOriginal, totalOriginal: entry.totalOriginal, paidOriginal: entry.paidOriginal,
         convQty: entry.convQty, convUnitUsed: entry.convUnitUsed,
@@ -5950,6 +6500,27 @@ function WarehouseTab({ data, patch, rate, role }) {
       if (entry.sourceType === "Ta'minotchi" && entry.paidSum > 0) {
         d.cashflow.unshift({ id: uid(), date: entry.date, type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: entry.paidSum, amountSum: entry.paidSum, amountUsd: entry.paidSum / rate, supplier: entry.supplier, note: `${product.name} x${entry.qty} — kirim to'lovi` });
       }
+      return d;
+    });
+  }
+
+  // Xizmat (servis) o'zining ehtiyoji uchun skladdan mahsulot/instrument olsa (masalan
+  // jgut, umumiy foydalaniladigan asbob) — biror mijoz kartasiga bog'lanmagani uchun
+  // avval hech qayerda qayd etilmasdi, sklad qoldig'i kamayib ketib "kamomad" chiqardi.
+  // Bu yozuv sklad qoldig'ini kamaytiradi VA sababini saqlaydi — inventarizatsiyada
+  // farq chiqmasligi uchun.
+  function addServiceUsage(entry) {
+    patch((d) => {
+      const product = d.products.find((p) => p.id === entry.productId);
+      if (!product) return d;
+      const qty = Math.min(num(entry.qty), num(product.qty));
+      product.qty = Math.max(0, num(product.qty) - qty);
+      d.serviceUsage = d.serviceUsage || [];
+      d.serviceUsage.unshift({
+        id: uid(), date: todayISO(), productId: product.id, productName: product.name,
+        qty, unit: product.unit, costSum: num(product.costSum) * qty,
+        usta: (entry.usta || "").trim(), note: (entry.note || "").trim(),
+      });
       return d;
     });
   }
@@ -5964,6 +6535,28 @@ function WarehouseTab({ data, patch, rate, role }) {
     });
   }
 
+  // Kirim yozuvini tahrirlash — xato kiritilgan miqdor/summa uchun. Miqdor o'zgarsa,
+  // farqi mahsulot qoldig'iga ham qo'shiladi/ayiriladi (aks holda sklad qoldig'i
+  // kirim tarixidan uzilib qolar edi). To'langan summa bu yerda tahrirlanmaydi —
+  // u kassa yozuvlari bilan bog'liq, xato to'lovni "Kassa" bo'limidan o'chirish kerak.
+  function saveStockInEdit(stockInId, updated, reason) {
+    patch((d) => {
+      const idx = (d.stockIns || []).findIndex((s) => s.id === stockInId);
+      if (idx < 0) return d;
+      const before = d.stockIns[idx];
+      const qtyDelta = num(updated.qty) - num(before.qty);
+      if (qtyDelta !== 0) {
+        const product = d.products.find((p) => p.id === before.productId);
+        if (product) product.qty = Math.max(0, num(product.qty) + qtyDelta);
+      }
+      const after = { ...before, ...updated };
+      d.stockIns[idx] = after;
+      d.editLog = d.editLog || [];
+      d.editLog.push({ id: uid(), date: todayISO(), before, after, reason, user: "Kassir" });
+      return d;
+    });
+  }
+
   function addFreeSale(sale) {
     patch((d) => {
       sale.items.forEach((it) => {
@@ -5971,7 +6564,7 @@ function WarehouseTab({ data, patch, rate, role }) {
         if (product) product.qty = Math.max(0, num(product.qty) - it.qty);
       });
       d.freeSales = d.freeSales || [];
-      d.freeSales.push({ id: uid(), time: nowTime(), ...sale });
+      d.freeSales.push({ id: uid(), ...sale });
 
       const itemsLabel = sale.items.map((i) => `${i.name} x${i.qty}`).join(", ");
 
@@ -6005,6 +6598,7 @@ function WarehouseTab({ data, patch, rate, role }) {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {!isReadOnly && <Btn variant="ghost" onClick={() => setSaleOpen(true)}><ShoppingCart size={14} /> Ulgurji savdo</Btn>}
+          {!isReadOnly && <Btn variant="ghost" onClick={() => setUsageOpen(true)}><Wrench size={14} /> Xizmat ehtiyoji uchun chiqarish</Btn>}
           {role === "azim" && (
             <Btn variant="gold" onClick={() => setInvReqOpen(true)}><Calendar size={14} /> Inventarizatsiya so'rovi (kassirga)</Btn>
           )}
@@ -6126,6 +6720,7 @@ function WarehouseTab({ data, patch, rate, role }) {
                     const d = num(r.totalSum) - num(r.paidSum);
                     return <span style={{ color: d > 0 ? T.red : T.teal, fontWeight: 600 }}>{fmtSum(d)}</span>;
                   } },
+                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} rate={rate} onSave={saveStockInEdit} /> },
               ]}
               rows={data.stockIns}
             />
@@ -6154,8 +6749,30 @@ function WarehouseTab({ data, patch, rate, role }) {
         </div>
       )}
 
+      {(data.serviceUsage || []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Card title={`Chiqim tarixi — Xizmat ehtiyoji (${data.serviceUsage.length})`} pad={false}>
+            <div style={{ padding: "14px 18px" }}>
+              <DateGroupedList
+                empty="Chiqim yo'q"
+                amountFn={(r) => -num(r.costSum)}
+                cols={[
+                  { k: "productName", h: "Mahsulot" },
+                  { k: "qty", h: "Miqdor", r: (r) => <span className="mo">{r.qty} {r.unit}</span> },
+                  { k: "usta", h: "Kim oldi", r: (r) => r.usta || "—" },
+                  { k: "costSum", h: "Qiymati", r: (r) => <span style={{ color: T.gold, fontWeight: 600 }}>{fmtSum(r.costSum)}</span> },
+                  { k: "note", h: "Sabab", r: (r) => <span style={{ color: T.muted, fontSize: 12 }}>{r.note || "—"}</span> },
+                ]}
+                rows={data.serviceUsage}
+              />
+            </div>
+          </Card>
+        </div>
+      )}
+
       {stockOpen && <StockInModal data={data} rate={rate} onClose={() => setStockOpen(false)} onSave={(e) => { addStock(e); setStockOpen(false); }} />}
       {saleOpen && <FreeSaleModal products={data.products} data={data} rate={rate} onClose={() => setSaleOpen(false)} onSave={(s) => { addFreeSale(s); setSaleOpen(false); }} />}
+      {usageOpen && <ServiceUsageModal products={data.products} ustaNames={ustaNameOptions(data)} onClose={() => setUsageOpen(false)} onSave={(e) => { addServiceUsage(e); setUsageOpen(false); }} />}
       {invReqOpen && (
         <InventoryScheduleModal onClose={() => setInvReqOpen(false)}
           onSave={(date, note) => { scheduleInventory(date, note); setInvReqOpen(false); }} />
@@ -6320,337 +6937,6 @@ function ProductOutflowCard({ data }) {
   );
 }
 
-/* ── ISH VAQTI — xodim (sklad/kassir) o'z smenasini belgilaydi, rahbar/azim hammasini ko'radi ── */
-function minutesBetween(t1, t2) {
-  const [h1, m1] = t1.split(":").map(Number);
-  const [h2, m2] = t2.split(":").map(Number);
-  let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
-  if (mins < 0) mins += 24 * 60; // yarim tundan o'tgan
-  return mins;
-}
-function shiftMinutes(s) {
-  if (!s.clockIn) return 0;
-  const end = s.clockOut || nowTime();
-  let mins = minutesBetween(s.clockIn, end);
-
-  let paused = s.pausedMinutes || 0;
-  if (s.pauseStart && !s.clockOut) {
-    paused += minutesBetween(s.pauseStart, end); // hozir pauzada — davom etayotgan pauza vaqti
-  }
-  mins -= paused;
-  return mins < 0 ? 0 : mins;
-}
-function shiftPausedMinutes(s) {
-  let paused = s.pausedMinutes || 0;
-  if (s.pauseStart && !s.clockOut) {
-    paused += minutesBetween(s.pauseStart, nowTime());
-  }
-  return paused;
-}
-function fmtDuration(mins) {
-  const h = Math.floor(mins / 60), m = mins % 60;
-  return `${h} soat ${m ? `${m} daq` : ""}`.trim();
-}
-
-function WorkTimeTab({ data, patch, role, staffName }) {
-  const [, forceTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => forceTick((x) => x + 1), 30000); // ochiq smena taymerini yangilab turish
-    return () => clearInterval(t);
-  }, []);
-
-  const myName = staffName || ROLE_LABELS[role] || role;
-  const shifts = data.shifts || [];
-  const isWorker = role === "sklad" || role === "kassir";
-  const today = todayISO();
-
-  const myOpenShift = shifts.find((s) => s.role === role && s.name === myName && !s.clockOut);
-  const myTodayShifts = shifts.filter((s) => s.role === role && s.name === myName && s.date === today);
-  const myTodayMinutes = myTodayShifts.reduce((sum, s) => sum + shiftMinutes(s), 0);
-
-  function clockIn() {
-    patch((d) => {
-      d.shifts = d.shifts || [];
-      d.shifts.unshift({ id: uid(), role, name: myName, date: todayISO(), clockIn: nowTime(), clockOut: null, pauseStart: null, pausedMinutes: 0 });
-      return d;
-    });
-  }
-  function clockOut(id) {
-    patch((d) => {
-      const s = (d.shifts || []).find((x) => x.id === id);
-      if (s && !s.clockOut) {
-        if (s.pauseStart) {
-          // pauzada bo'lsa, ish tugatishdan oldin pauzani ham yakunlaymiz
-          s.pausedMinutes = (s.pausedMinutes || 0) + minutesBetween(s.pauseStart, nowTime());
-          s.pauseStart = null;
-        }
-        s.clockOut = nowTime();
-      }
-      return d;
-    });
-  }
-  function pauseShift(id) {
-    patch((d) => {
-      const s = (d.shifts || []).find((x) => x.id === id);
-      if (s && !s.clockOut && !s.pauseStart) s.pauseStart = nowTime();
-      return d;
-    });
-  }
-  function resumeShift(id) {
-    patch((d) => {
-      const s = (d.shifts || []).find((x) => x.id === id);
-      if (s && s.pauseStart) {
-        s.pausedMinutes = (s.pausedMinutes || 0) + minutesBetween(s.pauseStart, nowTime());
-        s.pauseStart = null;
-      }
-      return d;
-    });
-  }
-
-  // Rahbar/azim uchun — oxirgi 30 kunlik barcha xodimlar smenasi, kunlik jamlanma
-  const since = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-  const recentShifts = shifts.filter((s) => s.date >= since).sort((a, b) => (b.date + (b.clockIn || "")).localeCompare(a.date + (a.clockIn || "")));
-  const byPersonToday = {};
-  shifts.filter((s) => s.date === today).forEach((s) => {
-    const key = `${s.name} (${ROLE_LABELS[s.role] || s.role})`;
-    byPersonToday[key] = (byPersonToday[key] || 0) + shiftMinutes(s);
-  });
-
-  return (
-    <div>
-      <div style={{ marginBottom: 18 }}>
-        <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Ish vaqti</h2>
-        <p style={{ color: T.muted, fontSize: 12, marginTop: 3, maxWidth: 520 }}>
-          Xodimlar smenasi — kim qachon ish boshlagani, tugatgani va necha soat ishlagani
-        </p>
-      </div>
-
-      {isWorker && (
-        <Card title="Mening smenam" accent={myOpenShift ? T.teal : undefined}>
-          {myOpenShift ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 12, color: T.muted }}>Ish boshlangan vaqt</div>
-                <div className="mo" style={{ fontSize: 20, fontWeight: 800, color: myOpenShift.pauseStart ? T.gold : T.teal }}>{myOpenShift.clockIn}</div>
-                {myOpenShift.pauseStart ? (
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-                    <Badge color={T.gold}>Pauzada</Badge>{" "}
-                    <span className="mo">{myOpenShift.pauseStart}</span> dan beri — jami ish: <b className="mo">{fmtDuration(shiftMinutes(myOpenShift))}</b>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-                    Hozirgacha: <b className="mo">{fmtDuration(shiftMinutes(myOpenShift))}</b> ishladingiz
-                    {shiftPausedMinutes(myOpenShift) > 0 && <> (pauza: <b className="mo">{fmtDuration(shiftPausedMinutes(myOpenShift))}</b>)</>}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {myOpenShift.pauseStart ? (
-                  <Btn onClick={() => resumeShift(myOpenShift.id)} style={{ background: T.teal }}><PlayCircle size={14} /> Davom ettirish</Btn>
-                ) : (
-                  <Btn onClick={() => pauseShift(myOpenShift.id)} style={{ background: T.gold }}><PauseCircle size={14} /> Pauza</Btn>
-                )}
-                <Btn onClick={() => clockOut(myOpenShift.id)} style={{ background: T.red }}>Ish tugadi</Btn>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-              <div style={{ fontSize: 13, color: T.muted }}>
-                Bugun {myTodayShifts.length > 0 ? `jami ${fmtDuration(myTodayMinutes)} ishladingiz.` : "hali smena boshlamadingiz."}
-              </div>
-              <Btn onClick={clockIn}><PlayCircle size={14} /> Ish boshladim</Btn>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {(role === "azim" || role === "rahbar") && (
-        <div style={{ marginTop: isWorker ? 18 : 0 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 13, marginBottom: 18 }}>
-            {Object.keys(byPersonToday).length === 0 ? (
-              <Stat label="Bugun" value="Smena yo'q" color={T.muted2} Icon={Clock} />
-            ) : Object.entries(byPersonToday).map(([name, mins]) => (
-              <Stat key={name} label={name} value={fmtDuration(mins)} color={T.teal} Icon={Clock} />
-            ))}
-          </div>
-          <Card title={`So'nggi smenalar (${recentShifts.length})`} pad={false}>
-            <Tbl
-              empty="Smena yozuvi yo'q"
-              cols={[
-                { k: "date", h: "Sana", r: (r) => fmtDate(r.date) },
-                { k: "name", h: "Xodim", r: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
-                { k: "role", h: "Roli", r: (r) => ROLE_LABELS[r.role] || r.role },
-                { k: "in", h: "Keldi", r: (r) => <span className="mo">{r.clockIn || "—"}</span> },
-                { k: "out", h: "Ketdi", r: (r) => r.clockOut
-                    ? <span className="mo">{r.clockOut}</span>
-                    : r.pauseStart
-                      ? <Badge color={T.gold}>Pauzada</Badge>
-                      : <Badge color={T.teal}>Ish jarayonida</Badge> },
-                { k: "pause", h: "Pauza", r: (r) => shiftPausedMinutes(r) > 0 ? <span className="mo">{fmtDuration(shiftPausedMinutes(r))}</span> : "—" },
-                { k: "dur", h: "Davomiyligi", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{fmtDuration(shiftMinutes(r))}</span> },
-              ]}
-              rows={recentShifts}
-            />
-          </Card>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── SKLAD NAZORATI — istalgan davr uchun kirim/chiqim/tuzatish hisoboti ── */
-function StockLedgerTab({ data, role }) {
-  const [fromDate, setFromDate] = useState(todayISO().slice(0, 7) + "-01");
-  const [toDate, setToDate] = useState(todayISO());
-  const [search, setSearch] = useState("");
-  const [detailRow, setDetailRow] = useState(null);
-
-  const rows = useMemo(
-    () => stockLedgerReport(data, fromDate || null, toDate || null),
-    [data, fromDate, toDate]
-  );
-  const filtered = rows.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()));
-
-  const totals = filtered.reduce(
-    (s, r) => ({
-      openingValue: s.openingValue + r.openingValue,
-      inValue: s.inValue + r.inValue,
-      outValue: s.outValue + r.outValue,
-      closingValue: s.closingValue + r.closingValue,
-    }),
-    { openingValue: 0, inValue: 0, outValue: 0, closingValue: 0 }
-  );
-
-  function setRange(from, to) { setFromDate(from); setToDate(to); }
-
-  function exportExcel() {
-    const wb = XLSX.utils.book_new();
-    const sheet = filtered.map((r) => ({
-      "Mahsulot": r.name, "Birlik": r.unit,
-      "Boshi qoldiq": r.openingQty, "Boshi qiymati": r.openingValue,
-      "Kirim (miqdor)": r.inQty, "Kirim (summa)": r.inValue,
-      "Chiqim (miqdor)": r.outQty, "Chiqim (summa)": r.outValue,
-      "Tuzatish": r.adjQty,
-      "Oxiri qoldiq": r.closingQty, "Oxiri qiymati": r.closingValue,
-    }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet), "Sklad nazorati");
-    XLSX.writeFile(wb, `sklad-nazorati_${fromDate || "boshidan"}_${toDate || "hozir"}.xlsx`);
-  }
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Sklad nazorati</h2>
-          <p style={{ color: T.muted, fontSize: 12, marginTop: 3, maxWidth: 520 }}>
-            Tanlangan davrda — sotilgan yoki kartaga biriktirilganidan qat'iy nazar — har bir mahsulotning to'liq harakati
-          </p>
-        </div>
-        <Btn variant="ghost" onClick={exportExcel}><Download size={14} /> Excel</Btn>
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <F label="Dan"><input type="date" style={iSt} value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></F>
-        <F label="Gacha"><input type="date" style={iSt} value={toDate} onChange={(e) => setToDate(e.target.value)} /></F>
-        <div style={{ display: "flex", gap: 6 }}>
-          <Btn size="sm" variant="ghost" onClick={() => setRange(todayISO().slice(0, 7) + "-01", todayISO())}>Bu oy</Btn>
-          <Btn size="sm" variant="ghost" onClick={() => setRange(todayISO().slice(0, 4) + "-01-01", todayISO())}>Bu yil</Btn>
-          <Btn size="sm" variant="ghost" onClick={() => setRange("", "")}>Hammasi</Btn>
-        </div>
-        <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
-          <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.muted }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Mahsulot qidirish..." style={{ ...iSt, paddingLeft: 32 }} />
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 13, marginBottom: 18 }}>
-        <Stat label="Boshi qoldiq (qiymat)" value={fmtSum(totals.openingValue)} color={T.muted2} Icon={Package} />
-        <Stat label="Kirim (davrda)" value={fmtSum(totals.inValue)} color={T.teal} Icon={TrendingUp} />
-        <Stat label="Chiqim (davrda)" value={fmtSum(totals.outValue)} color={T.red} Icon={TrendingDown} />
-        <Stat label="Oxiri qoldiq (qiymat)" value={fmtSum(totals.closingValue)} color={T.gold} Icon={Wallet} />
-      </div>
-
-      <Card title={`Mahsulotlar (${filtered.length})`} pad={false}>
-        <Tbl
-          empty="Tanlangan davrda ma'lumot yo'q"
-          cols={[
-            { k: "name", h: "Nomi", r: (r) => <span style={{ fontWeight: 500 }}>{r.name}</span> },
-            { k: "opening", h: "Boshi qoldiq", r: (r) => <span className="mo">{r.openingQty} {r.unit}</span> },
-            { k: "in", h: "Kirim", r: (r) => (
-                <span className="mo" style={{ color: r.inQty ? T.teal : T.muted, fontWeight: r.inQty ? 700 : 400 }}>
-                  {r.inQty ? `+${r.inQty}` : "—"} {r.unit}
-                </span>
-              ) },
-            { k: "out", h: "Chiqim", r: (r) => (
-                <span className="mo" style={{ color: r.outQty ? T.red : T.muted, fontWeight: r.outQty ? 700 : 400 }}>
-                  {r.outQty ? `−${r.outQty}` : "—"} {r.unit}
-                </span>
-              ) },
-            { k: "adj", h: "Tuzatish", r: (r) => r.adjQty
-                ? <span className="mo" style={{ color: r.adjQty > 0 ? T.teal : T.red }}>{r.adjQty > 0 ? "+" : ""}{r.adjQty} {r.unit}</span>
-                : <span style={{ color: T.muted }}>—</span> },
-            { k: "closing", h: "Oxiri qoldiq", r: (r) => <span className="mo" style={{ fontWeight: 700 }}>{r.closingQty} {r.unit}</span> },
-            { k: "val", h: "Oxiri qiymati", r: (r) => <span style={{ color: T.gold }}>{fmtSum(r.closingValue)}</span> },
-            { k: "detail", h: "", r: (r) => (
-                <button onClick={() => setDetailRow(r)} disabled={!r.movements.length} style={{
-                  background: "none", border: `1px solid ${T.border2}`, borderRadius: 6, padding: "4px 10px",
-                  fontSize: 11, color: r.movements.length ? T.flame : T.border2,
-                  cursor: r.movements.length ? "pointer" : "default",
-                }}>Tafsilot</button>
-              ) },
-          ]}
-          rows={filtered}
-        />
-      </Card>
-
-      {detailRow && <StockLedgerDetailModal row={detailRow} onClose={() => setDetailRow(null)} />}
-    </div>
-  );
-}
-
-function StockLedgerDetailModal({ row, onClose }) {
-  const kindColor = { kirim: T.teal, chiqim: T.red, tuzatish: T.gold };
-  const kindLabel = { kirim: "Kirim", chiqim: "Chiqim", tuzatish: "Tuzatish" };
-  return (
-    <Modal title={`${row.name} — harakat tarixi`} onClose={onClose} xwide>
-      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
-        Boshi qoldiq: <b className="mo">{row.openingQty} {row.unit}</b> {"→"} Oxiri qoldiq: <b className="mo">{row.closingQty} {row.unit}</b>
-      </p>
-      <div style={{ maxHeight: 420, overflowY: "auto", border: `1px solid ${T.border}`, borderRadius: 9 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-          <thead>
-            <tr style={{ background: T.s3 }}>
-              <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11, color: T.muted }}>Sana</th>
-              <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11, color: T.muted }}>Turi</th>
-              <th style={{ textAlign: "right", padding: "8px 12px", fontSize: 11, color: T.muted }}>Miqdor</th>
-              <th style={{ textAlign: "left", padding: "8px 12px", fontSize: 11, color: T.muted }}>Manba / Izoh</th>
-              <th style={{ textAlign: "right", padding: "8px 12px", fontSize: 11, color: T.muted }}>Summasi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {row.movements.length === 0 ? (
-              <tr><td colSpan={5} style={{ padding: "20px 12px", textAlign: "center", color: T.muted }}>Harakat yo'q</td></tr>
-            ) : row.movements.map((m, i) => (
-              <tr key={i} style={{ borderTop: `1px solid ${T.border}` }}>
-                <td style={{ padding: "8px 12px" }}>
-                  {fmtDate(m.date)}
-                  {m.time ? <span className="mo" style={{ color: T.muted, marginLeft: 6, fontSize: 11 }}>{m.time}</span> : null}
-                </td>
-                <td style={{ padding: "8px 12px" }}><Badge color={kindColor[m.kind]}>{kindLabel[m.kind]}</Badge></td>
-                <td style={{ padding: "8px 12px", textAlign: "right" }} className="mo">
-                  <span style={{ color: kindColor[m.kind], fontWeight: 700 }}>{m.delta > 0 ? "+" : ""}{m.delta} {row.unit}</span>
-                </td>
-                <td style={{ padding: "8px 12px", color: T.muted }}>{m.label}{m.detail ? ` — ${m.detail}` : ""}</td>
-                <td style={{ padding: "8px 12px", textAlign: "right" }} className="mo">{fmtSum(m.valueSum)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Modal>
-  );
-}
-
 function PinGuardEdit({ item, onSave }) {
   const [pinOpen, setPinOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -6707,6 +6993,98 @@ function EditProductModal({ item, onClose, onSave }) {
         <F label="Sabab *" col="1/-1"><input style={iSt} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Narx oshdi, xato tuzatildi..." /></F>
       </div>
       <SaveBtn disabled={!reason.trim()} onClick={() => onSave({ ...f, convFactor: f.convUnit ? num(f.convFactor) : undefined }, { before: item, after: f, reason, user: "Kassir" })}>Saqlash</SaveBtn>
+    </Modal>
+  );
+}
+
+function PinGuardEditStockIn({ item, rate, onSave }) {
+  const [pinOpen, setPinOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setPinOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 4 }}>
+        <Pencil size={13} />
+      </button>
+      {pinOpen && <SimplePinModal onClose={() => setPinOpen(false)} onSuccess={() => { setPinOpen(false); setEditOpen(true); }} />}
+      {editOpen && <EditStockInModal item={item} rate={rate} onClose={() => setEditOpen(false)} onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }} />}
+    </>
+  );
+}
+
+function EditStockInModal({ item, rate, onClose, onSave }) {
+  const [currency, setCurrency] = useState(item.currency || "SUM");
+  const [qty, setQty] = useState(String(item.qty));
+  // Maydonlar tanlangan valyutada ko'rsatiladi (USD bo'lsa — dollarda). Boshlang'ich qiymat
+  // yozuv qaysi valyutada kiritilgan bo'lsa, shundan olinadi.
+  const [unitCost, setUnitCost] = useState(String(
+    (item.currency === "USD" ? item.unitCostOriginal : item.unitCostSum) || ""
+  ));
+  const [totalAmt, setTotalAmt] = useState(String(
+    (item.currency === "USD" ? item.totalOriginal : item.totalSum) || ""
+  ));
+  const [supplier, setSupplier] = useState(item.supplier || "");
+  const [reason, setReason] = useState("");
+
+  function handleQtyOrUnit(nextQty, nextUnitCost) {
+    setQty(nextQty);
+    setUnitCost(nextUnitCost);
+    const q = num(nextQty), u = num(nextUnitCost);
+    if (q > 0 && u > 0) setTotalAmt(String(Math.round(q * u * 100) / 100));
+  }
+
+  function handleCurrency(next) {
+    // Valyuta almashtirilganda maydonlarni bo'sh qilamiz — SUM<->USD orasida noto'g'ri
+    // (eski kursdagi) raqamni qoldirib, chalkashtirib yubormaslik uchun.
+    setCurrency(next);
+    setUnitCost("");
+    setTotalAmt("");
+  }
+
+  return (
+    <Modal title={`Kirimni tahrirlash — ${item.productName}`} onClose={onClose}>
+      <F label="Valyuta" col="1/-1">
+        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}` }}>
+          {[["SUM", "So'm"], ["USD", "Dollar"]].map(([id, l]) => (
+            <button key={id} onClick={() => handleCurrency(id)} type="button" style={{
+              flex: 1, padding: "9px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+              background: currency === id ? T.flame : "transparent", color: currency === id ? "#fff" : T.muted,
+            }}>{l}</button>
+          ))}
+        </div>
+      </F>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+        <F label={`Miqdor (${item.unit})`}>
+          <input type="number" style={iSt} value={qty} onChange={(e) => handleQtyOrUnit(e.target.value, unitCost)} />
+        </F>
+        <F label={`Birlik narxi (${currency === "USD" ? "$" : "so'm"})`}>
+          <input type="number" style={iSt} value={unitCost} onChange={(e) => handleQtyOrUnit(qty, e.target.value)} />
+        </F>
+        <F label={`Jami summa (${currency === "USD" ? "$" : "so'm"})`} col="1/-1">
+          <input type="number" style={iSt} value={totalAmt} onChange={(e) => setTotalAmt(e.target.value)} />
+        </F>
+        {currency === "USD" && num(totalAmt) > 0 && (
+          <p style={{ fontSize: 12, color: T.muted, gridColumn: "1/-1", marginTop: -6 }}>
+            ≈ {fmtSum(toSum(num(totalAmt), "USD", rate))} so'm (joriy kurs {fmtSum(rate)})
+          </p>
+        )}
+        <F label="Ta'minotchi" col="1/-1">
+          <input style={iSt} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+        </F>
+        <F label="Sabab *" col="1/-1">
+          <input style={iSt} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Xato kiritilgan summa tuzatildi..." />
+        </F>
+      </div>
+      <p style={{ fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
+        Miqdor o'zgartirilsa, farqi sklad qoldig'iga qo'shiladi/ayiriladi. To'langan summa bu yerdan
+        o'zgartirilmaydi — agar noto'g'ri to'lov kiritilgan bo'lsa, uni Kassa bo'limidan o'chiring.
+      </p>
+      <SaveBtn disabled={!reason.trim() || !num(qty) || !num(totalAmt)} onClick={() => onSave({
+        qty: num(qty), supplier: supplier.trim(), currency,
+        unitCostSum: toSum(num(unitCost), currency, rate),
+        totalSum: toSum(num(totalAmt), currency, rate),
+        unitCostOriginal: currency === "USD" ? num(unitCost) : undefined,
+        totalOriginal: currency === "USD" ? num(totalAmt) : undefined,
+      }, reason)}>Saqlash</SaveBtn>
     </Modal>
   );
 }
@@ -6882,6 +7260,55 @@ function StockInModal({ data, rate, onClose, onSave }) {
         paidOriginal: sourceType === "Ta'minotchi" ? num(paid) : num(effectiveUnitCost) * effectiveQty,
         sourceType, date: todayISO(),
       })}>Kirim qilish</SaveBtn>
+    </Modal>
+  );
+}
+
+function ServiceUsageModal({ products, ustaNames, onClose, onSave }) {
+  const [productId, setProductId] = useState(products[0]?.id || "");
+  const [qty, setQty] = useState(1);
+  const [usta, setUsta] = useState("");
+  const [note, setNote] = useState("");
+
+  const product = products.find((p) => p.id === productId);
+  const q = num(qty);
+  const overStock = product && q > num(product.qty);
+  const canSave = product && q > 0 && !overStock;
+
+  return (
+    <Modal title="Xizmat ehtiyoji uchun chiqarish" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+        Mijoz kartasiga emas, servisning o'z ehtiyojiga (masalan umumiy foydalaniladigan
+        jgut, asbob) ketgan mahsulot — shu orqali sklad qoldig'i to'g'ri kamayadi va
+        inventarizatsiyada kamomad chiqmaydi.
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Mahsulot / instrument">
+          {products.length ? (
+            <SearchSelect value={productId} onChange={setProductId} placeholder="Mahsulot nomini yozing..."
+              options={products.map((p) => ({ value: p.id, label: p.name, sub: `${p.qty} ${p.unit}` }))} />
+          ) : (
+            <Sel value="" onChange={() => {}} options={[{ value: "", label: "Sklad bo'sh" }]} />
+          )}
+        </F>
+        <F label={`Miqdor${product ? ` (${product.unit}, qoldiq: ${product.qty})` : ""}`}>
+          <input type="number" style={iSt} value={qty} onChange={(e) => setQty(e.target.value)} />
+        </F>
+        <F label="Kim oldi (ixtiyoriy)">
+          <input style={iSt} value={usta} onChange={(e) => setUsta(e.target.value)} placeholder="Usta ismi"
+            list="usage-usta-list" />
+          <datalist id="usage-usta-list">
+            {ustaNames.map((n) => <option key={n} value={n} />)}
+          </datalist>
+        </F>
+        <F label="Sababi / izoh">
+          <input style={iSt} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Masalan: umumiy jgut, sexda ishlatildi" />
+        </F>
+      </div>
+      {overStock && <p style={{ color: T.red, fontSize: 12, marginTop: 10 }}>Skladda yetarli emas — bor-yo'g'i {product.qty} {product.unit}.</p>}
+      <SaveBtn disabled={!canSave} onClick={() => onSave({ productId, qty: q, usta, note })}>
+        Chiqarish
+      </SaveBtn>
     </Modal>
   );
 }
@@ -7328,12 +7755,16 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                       // maydoniga qaytamiz, aks holda bunday eski yozuvlar hech qachon
                       // qarzni to'g'ri qaytarolmaydi.
                       const settleId = r.debtSettleId || (r.debtSettleKind === "supplier" ? r.supplier : undefined);
+                      const isUstaClose = r.category === "Usta xizmat haqi" && (r.ustaLedgerIds?.length || r.ustaCloseId);
                       const msg = r.debtSettleKind
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${settleId || ""}") ham shu summaga qaytariladi.`
+                        : isUstaClose
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — usta hisobini yopish yozuvi. O'chirilganda ustaning (va shogirt bo'lgan bo'lsa, uning ham) hisobi qaytadan "to'lanmagan" holatga qaytadi.`
                         : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
                       if (!(await askConfirm(msg))) return;
                       patch((d) => {
                         if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, settleId, num(r.amountSum));
+                        if (isUstaClose) reverseUstaClose(d, r);
                         d.cashflow = d.cashflow.filter((x) => x.id !== r.id);
                         return d;
                       });
@@ -8249,6 +8680,8 @@ function DailyReport({ data, onClose }) {
 /* ─── USTA HISOB-KITOBI TAB ─── */
 function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const [addContractedOpen, setAddContractedOpen] = useState(false);
+  const [addApprenticeOpen, setAddApprenticeOpen] = useState(false);
+  const [closeSplitGroup, setCloseSplitGroup] = useState(null);
   const isSelf = !canManage; // usta o'zi kirgan — faqat o'ziga tegishlisini ko'radi
   const pendingByName = isSelf
     ? ustaPendingByName(data).filter((u) => sameName(u.usta, ustaName))
@@ -8266,13 +8699,60 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   const closeGroupLock = useRef(false);
   function closeGroup(g) {
     if (closeGroupLock.current) return;
+    // Shogirti bor usta bo'lsa — to'g'ridan-to'g'ri yopmasdan, kassirga shogirt ulushini
+    // ko'rsatib tasdiqlash oynasini ochamiz (u xohlagancha o'zgartirishi mumkin).
+    const appr = apprenticeFor(apprentices, g.usta);
+    if (appr) { setCloseSplitGroup(g); return; }
     closeGroupLock.current = true;
     setTimeout(() => { closeGroupLock.current = false; }, 1500);
     patch((d) => {
       d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
-      d.cashflow.unshift({ id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM", amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate, note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)` });
+      d.cashflow.unshift({
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate,
+        note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`,
+        ustaLedgerIds: g.ids,
+      });
       return d;
     });
+  }
+
+  // Kassir shogirt ulushini tasdiqlagach — ustaning hisobi yopiladi, LEKIN pul ikkiga
+  // bo'lib kassadan chiqadi: qolgan qism ustaga, ajratilgan qism shogirtga. Shogirt
+  // tomoni darhol "to'langan" deb yoziladi — bu faqat hisobot uchun (usta shogirtga
+  // qancha berganini ko'rishi uchun), shogirtning o'zi uchun alohida kutish/yopish yo'q.
+  function confirmCloseWithSplit(g, shogirtName, shogirtAmount) {
+    patch((d) => {
+      d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
+      const amt = Math.max(0, Math.min(num(shogirtAmount), g.amountSum));
+      const ustaAmt = g.amountSum - amt;
+      const label = g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`;
+      // ustaCloseId ikkala yozuvni ("usta ulushi" + "shogirt ulushi") bir-biriga bog'laydi —
+      // biri o'chirilsa, ikkinchisi ham avtomatik o'chadi va usta hisobi qaytadan
+      // "to'lanmagan" holatga qaytadi (Kassadagi oddiy o'chirish tugmasi orqali).
+      const closeId = uid();
+      const shogirtLedgerId = amt > 0 ? uid() : undefined;
+      d.cashflow.unshift({
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        amount: ustaAmt, amountSum: ustaAmt, amountUsd: ustaAmt / rate,
+        note: amt > 0 ? `${label} — shogirt (${shogirtName}) uchun ${fmtSum(amt)} ajratildi` : label,
+        ustaLedgerIds: g.ids, ustaCloseId: closeId,
+      });
+      if (amt > 0) {
+        d.cashflow.unshift({
+          id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+          amount: amt, amountSum: amt, amountUsd: amt / rate,
+          note: `${shogirtName} — ${g.usta} shogirt ulushi`,
+          ustaCloseId: closeId, shogirtLedgerId,
+        });
+        d.ustaLedger.unshift({
+          id: shogirtLedgerId, date: todayISO(), usta: shogirtName, amountSum: amt, paid: true,
+          shogirtSourceUsta: g.usta, note: `${g.usta} shogirt ulushi`,
+        });
+      }
+      return d;
+    });
+    setCloseSplitGroup(null);
   }
 
   function addContractedMaster(name) {
@@ -8288,6 +8768,32 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
   function removeContractedMaster(id) {
     patch((d) => { d.contractedMasters = (d.contractedMasters || []).filter((m) => m.id !== id); return d; });
   }
+
+  const apprentices = data.apprentices || [];
+  function addApprentice(usta, shogirt, percent) {
+    patch((d) => {
+      d.apprentices = d.apprentices || [];
+      // Har bir ustaga bitta shogirt — eskisi bo'lsa almashtiramiz (chalkashmasin)
+      d.apprentices = d.apprentices.filter((a) => !sameName(a.usta, usta));
+      d.apprentices.push({ id: uid(), usta, shogirt, percent: num(percent) || 20 });
+      return d;
+    });
+  }
+  function removeApprentice(id) {
+    patch((d) => { d.apprentices = (d.apprentices || []).filter((a) => a.id !== id); return d; });
+  }
+
+  // Har bir usta o'z shogirtiga jami qancha berganini (kassir har yopishda tasdiqlagan
+  // summalar bo'yicha) ko'radi
+  const shogirtTotals = {};
+  data.ustaLedger.filter((e) => e.shogirtSourceUsta).forEach((e) => {
+    const key = e.shogirtSourceUsta + "→" + e.usta;
+    if (!shogirtTotals[key]) shogirtTotals[key] = { usta: e.shogirtSourceUsta, shogirt: e.usta, total: 0 };
+    shogirtTotals[key].total += num(e.amountSum);
+  });
+  const shogirtTotalsList = Object.values(shogirtTotals)
+    .filter((s) => !isSelf || sameName(s.usta, ustaName))
+    .sort((a, b) => b.total - a.total);
 
   // shu ustalarning bu oyda servisga qo'shgan foydasi (bonus)
   const contractedBonusThisMonth = data.serviceCards
@@ -8332,6 +8838,53 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
                 ))}
               </div>
             )}
+          </Card>
+        </div>
+      )}
+
+      {canManage && (
+        <div style={{ marginBottom: 16 }}>
+          <Card title="Shogirtlar"
+            action={<Btn size="sm" onClick={() => setAddApprenticeOpen(true)}><Plus size={12} /> Qo'shish</Btn>}>
+            <p style={{ fontSize: 12, color: T.muted, marginBottom: apprentices.length ? 12 : 0 }}>
+              Usta shogirt bilan ishlasa — ustaning hisobi ("Kutilayotgan jami") to'liq ko'rinishda
+              qoladi, usta faqat kuzatadi. Kassir shu ustani "Yopish" bosganda, belgilangan foiz
+              (odatda 20%) shogirt ulushi sifatida taklif etiladi — kassir aniq summani o'zi
+              (kamroq yoki ko'proq) belgilab, ikkalasiga alohida to'laydi.
+            </p>
+            {apprentices.length > 0 && (
+              <div style={{ display: "grid", gap: 8 }}>
+                {apprentices.map((a) => (
+                  <div key={a.id} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    background: T.s3, borderRadius: 10, padding: "9px 13px",
+                  }}>
+                    <span style={{ fontSize: 12.5 }}>
+                      <b>{a.usta}</b> <span style={{ color: T.muted }}>→</span> <b>{a.shogirt}</b>
+                      <span style={{ color: T.gold, marginLeft: 8 }}>({a.percent}%)</span>
+                    </span>
+                    <button onClick={() => removeApprentice(a.id)} style={{
+                      background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 2, display: "flex",
+                    }}><X size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {shogirtTotalsList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Card title="Shogirt ulushlari (jami ajratilgan)" pad={false}>
+            <Tbl
+              cols={[
+                { k: "usta", h: "Usta", r: (r) => <span style={{ fontWeight: 600 }}>{r.usta}</span> },
+                { k: "shogirt", h: "Shogirt", r: (r) => r.shogirt },
+                { k: "total", h: "Jami ajratilgan", r: (r) => <span style={{ color: T.gold, fontWeight: 700 }}>{fmtSum(r.total)}</span> },
+              ]}
+              rows={shogirtTotalsList}
+            />
           </Card>
         </div>
       )}
@@ -8386,7 +8939,72 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
           onClose={() => setAddContractedOpen(false)}
           onSave={(name) => { addContractedMaster(name); setAddContractedOpen(false); }} />
       )}
+      {addApprenticeOpen && (
+        <AddApprenticeModal ustaNames={ustaNameOptions(data)}
+          onClose={() => setAddApprenticeOpen(false)}
+          onSave={(usta, shogirt, percent) => { addApprentice(usta, shogirt, percent); setAddApprenticeOpen(false); }} />
+      )}
+      {closeSplitGroup && (
+        <CloseUstaWithApprenticeModal group={closeSplitGroup} apprentice={apprenticeFor(apprentices, closeSplitGroup.usta)}
+          onClose={() => setCloseSplitGroup(null)}
+          onConfirm={(shogirtAmount) => confirmCloseWithSplit(closeSplitGroup, apprenticeFor(apprentices, closeSplitGroup.usta).shogirt, shogirtAmount)} />
+      )}
     </div>
+  );
+}
+
+function CloseUstaWithApprenticeModal({ group, apprentice, onClose, onConfirm }) {
+  const suggested = Math.round(num(group.amountSum) * (num(apprentice.percent) || 20) / 100);
+  const [shogirtAmount, setShogirtAmount] = useState(String(suggested));
+  const ustaAmount = Math.max(0, num(group.amountSum) - num(shogirtAmount));
+  return (
+    <Modal title={`${group.usta} — hisobni yopish`} onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Jami hisob: <b className="mo">{fmtSum(group.amountSum)}</b>. Shogirt (<b>{apprentice.shogirt}</b>)
+        ulushi taklif etilgan {apprentice.percent}% — xohlasangiz o'zgartiring.
+      </p>
+      <F label={`Shogirt (${apprentice.shogirt}) ulushi`}>
+        <input type="number" style={iSt} value={shogirtAmount} onChange={(e) => setShogirtAmount(e.target.value)} autoFocus />
+      </F>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 2px 0", fontSize: 13 }}>
+        <span style={{ color: T.muted }}>{group.usta}ga qoladi</span>
+        <span className="mo" style={{ fontWeight: 700, color: T.flame }}>{fmtSum(ustaAmount)}</span>
+      </div>
+      <SaveBtn color={T.teal} onClick={() => onConfirm(num(shogirtAmount))}>
+        <Check size={15} /> Tasdiqlash va yopish
+      </SaveBtn>
+    </Modal>
+  );
+}
+
+function AddApprenticeModal({ ustaNames, onClose, onSave }) {
+  const [usta, setUsta] = useState("");
+  const [shogirt, setShogirt] = useState("");
+  const [percent, setPercent] = useState(20);
+  return (
+    <Modal title="Shogirt qo'shish" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
+        Bu ustaning xizmat haqidan belgilangan foizi endi avtomatik shogirtga ajratiladi
+        (usta karta yakunlaganda). Har bir ustaga bitta shogirt biriktirish mumkin.
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Usta ismi">
+          <input style={iSt} value={usta} onChange={(e) => setUsta(e.target.value)}
+            list="apprentice-usta-list" placeholder="Masalan: Umarxon" autoFocus />
+          <datalist id="apprentice-usta-list">{ustaNames.map((n) => <option key={n} value={n} />)}</datalist>
+        </F>
+        <F label="Shogirt ismi">
+          <input style={iSt} value={shogirt} onChange={(e) => setShogirt(e.target.value)} placeholder="Masalan: Sardor" />
+        </F>
+        <F label="Shogirt ulushi (%)">
+          <input type="number" style={iSt} value={percent} onChange={(e) => setPercent(e.target.value)} min={1} max={100} />
+        </F>
+      </div>
+      <SaveBtn disabled={!usta.trim() || !shogirt.trim() || !num(percent)} color={T.purple}
+        onClick={() => onSave(usta.trim(), shogirt.trim(), num(percent))}>
+        <Plus size={15} /> Qo'shish
+      </SaveBtn>
+    </Modal>
   );
 }
 
@@ -8515,22 +9133,25 @@ function WarrantyTab({ data, patch, rate }) {
   function addClaim(claim) {
     patch((d) => {
       const product = d.products.find((p) => p.id === claim.replacementProductId);
-      // Almashtirilib beriladigan mahsulotning haqiqiy tan narxi — mijozdan pul
-      // olinmaydi, lekin bu sklad uchun real xarajat, shuning uchun kassaga yozamiz.
-      const replacementCost = product ? num(product.costSum) * num(claim.qty) : 0;
-      if (product) product.qty = Math.max(0, num(product.qty) - claim.qty);
+      // Bir nechta mahsulot — har biri uchun sklad ayirish (kassaga YOZILMAYDI)
+      const items = claim.items || [{ productId: claim.replacementProductId, productName: claim.replacementName, qty: claim.qty }];
+      items.forEach((item) => {
+        const prod = d.products.find((p) => p.id === item.productId);
+        if (prod) prod.qty = Math.max(0, num(prod.qty) - num(item.qty));
+        d.stockOuts = d.stockOuts || [];
+        d.stockOuts.unshift({
+          id: uid(), date: todayISO(), time: nowTime(),
+          productId: item.productId, productName: item.productName || prod?.name || "",
+          qty: num(item.qty), amountSum: 0,
+          reason: "Kafolat almashtirish", plate: claim.plate,
+        });
+      });
       d.brokenItems = d.brokenItems || [];
       d.brokenItems.push({ id: uid(), date: todayISO(), name: claim.brokenProduct, qty: claim.qty, fromPlate: claim.plate, status: "Tekshirilmoqda" });
       d.warrantyClaims.unshift({ id: uid(), ...claim });
+      // Faqat usta haqi bo'lsa kassaga yoziladi
       if (claim.ustaFeeCharged > 0) {
         d.cashflow.unshift({ id: uid(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi", currency: "SUM", amount: claim.ustaFeeCharged, amountSum: claim.ustaFeeCharged, amountUsd: 0, note: `Kafolat — usta haqi — ${claim.plate}` });
-      }
-      if (replacementCost > 0) {
-        d.cashflow.unshift({
-          id: uid(), date: todayISO(), type: "chiqim", category: "Kafolat xarajati",
-          currency: "SUM", amount: replacementCost, amountSum: replacementCost, amountUsd: replacementCost / rate,
-          note: `Kafolat almashtirish — ${claim.replacementName || ""} x${claim.qty} — ${claim.plate}`,
-        });
       }
       return d;
     });
@@ -8601,19 +9222,45 @@ function WarrantyTab({ data, patch, rate }) {
 
 function WarrantyClaimModal({ card, products, onClose, onSave }) {
   const [brokenProduct, setBrokenProduct] = useState("");
-  const [replId, setReplId] = useState(products[0]?.id || "");
-  const [qty, setQty] = useState(1);
+  const [items, setItems] = useState([{ productId: products[0]?.id || "", qty: 1 }]);
   const [chargeUsta, setChargeUsta] = useState(false);
   const [ustaFee, setUstaFee] = useState(0);
   const [docConfirmed, setDocConfirmed] = useState(false);
-  const repl = products.find((p) => p.id === replId);
+
+  function setItem(i, key, val) { setItems((prev) => prev.map((it, idx) => idx === i ? { ...it, [key]: val } : it)); }
+  function addItem() { setItems((prev) => [...prev, { productId: products[0]?.id || "", qty: 1 }]); }
+  function removeItem(i) { if (items.length > 1) setItems((prev) => prev.filter((_, idx) => idx !== i)); }
+  const canSave = brokenProduct.trim() && items.every((it) => it.productId && num(it.qty) > 0);
 
   return (
     <Modal title={`Kafolat almashtirish — ${card.plate}`} onClose={onClose} wide>
-      <F label="Brak mahsulot"><input style={iSt} value={brokenProduct} onChange={(e) => setBrokenProduct(e.target.value)} /></F>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-        <F label="O'rniga beriladigan"><Sel value={replId} onChange={(e) => setReplId(e.target.value)} options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.qty})` }))} /></F>
-        <F label="Miqdor"><input type="number" style={iSt} value={qty} onChange={(e) => setQty(e.target.value)} /></F>
+      <F label="Brak mahsulot (nima buzilgan)">
+        <input style={iSt} value={brokenProduct} onChange={(e) => setBrokenProduct(e.target.value)} placeholder="Masalan: Gaz balloni, regulyator..." />
+      </F>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8 }}>
+          O'RNIGA BERILADIGAN
+          <span style={{ fontSize: 11, fontWeight: 400, color: T.muted2, marginLeft: 6 }}>faqat skladdan ayiriladi — kassaga ta'sir qilmaydi</span>
+        </div>
+        {items.map((it, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 90px 32px", gap: 8, marginBottom: 8, alignItems: "end" }}>
+            <F label={i === 0 ? "Mahsulot" : ""}>
+              <Sel value={it.productId} onChange={(e) => setItem(i, "productId", e.target.value)}
+                options={products.map((p) => ({ value: p.id, label: p.name + " (" + p.qty + " ta)" }))} />
+            </F>
+            <F label={i === 0 ? "Miqdor" : ""}>
+              <input type="number" min="1" style={iSt} value={it.qty} onChange={(e) => setItem(i, "qty", e.target.value)} />
+            </F>
+            <button onClick={() => removeItem(i)}
+              style={{ height: 36, marginTop: i === 0 ? 18 : 0, background: "none", border: "1px solid " + T.border, borderRadius: 6, cursor: "pointer", color: T.red }}>
+              x
+            </button>
+          </div>
+        ))}
+        <button onClick={addItem}
+          style={{ fontSize: 12, color: T.blue, background: "none", border: "1px dashed " + T.blue, borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}>
+          + Yana mahsulot
+        </button>
       </div>
       <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer", fontSize: 13 }}>
         <input type="checkbox" checked={docConfirmed} onChange={(e) => setDocConfirmed(e.target.checked)} style={{ accentColor: T.teal }} />
@@ -8624,7 +9271,10 @@ function WarrantyClaimModal({ card, products, onClose, onSave }) {
         Usta xizmat haqi olinsin
       </label>
       {chargeUsta && <F label="Summa"><input type="number" style={iSt} value={ustaFee} onChange={(e) => setUstaFee(e.target.value)} /></F>}
-      <SaveBtn disabled={!brokenProduct.trim()} onClick={() => onSave({ date: todayISO(), plate: card.plate, brokenProduct: brokenProduct.trim(), replacementProductId: replId, replacementName: repl?.name, qty: num(qty), ustaFeeCharged: chargeUsta ? num(ustaFee) : 0, docConfirmed })}>Saqlash</SaveBtn>
+      <SaveBtn disabled={!canSave} onClick={() => {
+        const enriched = items.map((it) => { const p = products.find((x) => x.id === it.productId); return { productId: it.productId, productName: p?.name || "", qty: num(it.qty) }; });
+        onSave({ date: todayISO(), plate: card.plate, brokenProduct: brokenProduct.trim(), items: enriched, replacementProductId: enriched[0]?.productId, replacementName: enriched.map((it) => it.productName + " x" + it.qty).join(", "), qty: enriched.reduce((s, it) => s + it.qty, 0), ustaFeeCharged: chargeUsta ? num(ustaFee) : 0, docConfirmed });
+      }}>Saqlash</SaveBtn>
     </Modal>
   );
 }
@@ -8671,7 +9321,7 @@ function PartnersTab({ data, patch, rate }) {
       const partnerObj = d.partners.find((p) => p.id === partnerId);
       d.stockOuts = d.stockOuts || [];
       d.stockOuts.unshift({
-        id: uid(), date: todayISO(), time: nowTime(), productId: item.productId, productName: item.name,
+        id: uid(), date: todayISO(), productId: item.productId, productName: item.name,
         qty: item.qty, amountSum: item.amountSum, reason: "Insider servisga qarzga berildi",
         partnerId, partnerName: partnerObj?.name || "Noma'lum",
       });
@@ -8982,14 +9632,16 @@ function GiveProductModal({ partner, products, data, onClose, onSave }) {
 ═══════════════════════════════════════════════════ */
 function currentMonthKey() { return todayISO().slice(0, 7); }
 
-// KPI davri — oddiy taqvim oyi emas, 27-kundan 26-kungacha (keyingi oy).
-// 27-avgust — 26-sentyabr → bitta davr, "2026-08" deb belgilanadi.
-// Misol: 5-sentyabr kiritilsa ham, hali 27-sentyabrga yetmagani uchun "2026-08" davriga tushadi.
-function kpiPeriodKey(dateStr) {
-  const d = dateStr ? new Date(dateStr) : new Date();
-  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
-  const periodStart = day >= 27 ? new Date(y, m, 1) : new Date(y, m - 1, 1);
-  return `${periodStart.getFullYear()}-${String(periodStart.getMonth() + 1).padStart(2, "0")}`;
+// Avgust hisobi odatdagidek oy oxirigacha emas, 29-avgustda erta yopildi.
+// Shuning uchun 30—31-avgust yozuvlari (KPI, avans) endi SENTYABR davriga
+// tegishli deb hisoblanadi. Bu — Azim KPI va avans-hisob oynalari uchun
+// "amaldagi hisob oyi"ni to'g'ri aniqlaydigan yordamchi funksiya.
+// Muhim: bu faqat shu bir martalik chegara uchun; kelajakda oddiy kalendar
+// oyiga qaytadi.
+function accountingMonthKey(dateStr) {
+  const d = dateStr || todayISO();
+  if (d >= "2026-08-30" && d <= "2026-08-31") return "2026-09";
+  return d.slice(0, 7);
 }
 
 function EmployeesTab({ data, patch, rate }) {
@@ -9009,7 +9661,7 @@ function EmployeesTab({ data, patch, rate }) {
     return monthPayments.filter((p) => p.employeeId === employeeId).reduce((s, p) => s + num(p.amountSum), 0);
   }
 
-  const months = [...new Set([currentMonthKey(), ...payments.map((p) => p.month)])].sort().reverse();
+  const months = [...new Set([currentMonthKey(), accountingMonthKey(), ...payments.map((p) => p.month)])].sort().reverse();
 
   // "Analitika" bo'limidagi Azim KPI shu oyda qo'shilgan bo'lsa — KPI'ga "ulangan"
   // xodimning shu oygi oyligiga qo'shib ko'rsatamiz. Haqiqiy standardSalary o'zgarmaydi,
@@ -9031,19 +9683,30 @@ function EmployeesTab({ data, patch, rate }) {
   // hisoblanishi kerak, aks holda ikki marta hisoblanib qolardi.
   // Bir martalik istisno: oylik 25-kuni yopilgani uchun 27-28 iyuldagi yozuvlar aslida
   // avgust davriga tegishli — shuning uchun avgust oynasi 27-iyuldan boshlanadi.
+  // Xuddi shunday, avgust hisobi 29-avgustda erta yopildi — shuning uchun 30-31-avgust
+  // yozuvlari endi sentyabr davriga tegishli (avgust oynasi 29-avgustda tugaydi).
   //
   // MUHIM: iyul oynasi ham aynan shu kundan OLDIN tugashi shart. Aks holda 27-28 iyul
   // ikkala oynaga ham tushib, bir xil pul iyulda ham, avgustda ham "olingan" deb
   // ko'rsatiladi (bu yerda 1 500 000 so'm shunday ikki marta hisoblangan edi).
   const AUG_PERIOD_START = "2026-07-27";
+  const AUG_PERIOD_END = "2026-08-29";
   const prevDay = (iso) => {
     const t = new Date(iso + "T00:00:00Z");
     t.setUTCDate(t.getUTCDate() - 1);
     return t.toISOString().slice(0, 10);
   };
-  const drawFrom = monthFilter === "2026-08" ? AUG_PERIOD_START : monthFilter + "-01";
+  const nextDay = (iso) => {
+    const t = new Date(iso + "T00:00:00Z");
+    t.setUTCDate(t.getUTCDate() + 1);
+    return t.toISOString().slice(0, 10);
+  };
+  const drawFrom =
+    monthFilter === "2026-08" ? AUG_PERIOD_START
+    : monthFilter === "2026-09" ? nextDay(AUG_PERIOD_END)
+    : monthFilter + "-01";
   const drawTo =
-    monthFilter === "2026-08" ? "2026-08-31"
+    monthFilter === "2026-08" ? AUG_PERIOD_END
     : monthFilter === AUG_PERIOD_START.slice(0, 7) ? prevDay(AUG_PERIOD_START)
     : monthFilter + "-31";
   const azimEmp = employeesRaw.find((e) => e.id === azimEmployeeId);
@@ -10016,7 +10679,7 @@ function RahbarPanelTab({ data, patch, rate }) {
         const d = new Date();
         const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
         const isMonthEnd = d.getDate() >= lastDay - 4; // oxirgi 5 kun
-        const hasKpiThisMonth = (data.settings.azimKpiHistory || []).some((h) => h.month === kpiPeriodKey());
+        const hasKpiThisMonth = (data.settings.azimKpiHistory || []).some((h) => h.month === currentMonthKey());
         if (!isMonthEnd || hasKpiThisMonth) return null;
         return (
           <div style={{ background: T.purpleD, border: `1px solid ${T.purple}40`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12.5, color: T.purple }}>
@@ -10313,11 +10976,13 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
   const totalRevenue = sumF(cards, "finalTotal");
   const totalProfit = sumF(cards, "profitSum");
   const totalProductProfit = productProfitReport(data).reduce((s, r) => s + r.profit, 0);
-  // Saqlangan (data.settings.azimKpi) qiymatga tayanmaymiz — u faqat yangi KPI
-  // qo'shilganda yangilanardi va davr almashganda (masalan 27-kun kelganda) eski
-  // qolib ketardi. Endi har doim JORIY davr bo'yicha jonli hisoblanadi.
+  // MUHIM: saqlangan data.settings.azimKpi ga tayanmaymiz — u eski kodda
+  // BARCHA vaqt davomidagi (hamma oylar) yig'indi bo'lib, hech qachon
+  // yangi oyda noldan boshlanmasdi ("eski KPI yakunlanmayapti" xatosi).
+  // Endi har doim JORIY hisob davri bo'yicha jonli hisoblanadi — 30-31-avgust
+  // sentyabr davriga tegishli (avgust 29-avgustda erta yopilgani uchun).
   const azimKpi = (data.settings.azimKpiHistory || [])
-    .filter((h) => h.month === kpiPeriodKey())
+    .filter((h) => h.month === accountingMonthKey())
     .reduce((s, h) => s + num(h.amount), 0);
 
   // KPI kartochkalar bosilganda ochiladigan tafsilot ro'yxatlari — eng katta
@@ -10426,16 +11091,18 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
           <KpiEditCard value={azimKpi} history={data.settings.azimKpiHistory}
             onAdd={(amount, reason) => patch((d) => {
               d.settings.azimKpiHistory = d.settings.azimKpiHistory || [];
-              d.settings.azimKpiHistory.push({ id: uid(), month: kpiPeriodKey(), amount, reason, date: todayISO() });
-              // Faqat JORIY davr uchun yig'indi — o'tgan davrlar bu yerga qo'shilmaydi,
-              // shu sababli har yangi davr (27-kundan) avtomatik noldan boshlanadi.
+              const thisMonth = accountingMonthKey();
+              d.settings.azimKpiHistory.push({ id: uid(), month: thisMonth, amount, reason, date: todayISO() });
+              // Faqat JORIY oy uchun yig'indi — o'tgan oylar bu yerga qo'shilmaydi,
+              // shu sababli har yangi oy avtomatik noldan boshlanadi.
               d.settings.azimKpi = (d.settings.azimKpiHistory || [])
-                .filter((h) => h.month === kpiPeriodKey())
+                .filter((h) => h.month === thisMonth)
                 .reduce((s, h) => s + num(h.amount), 0);
               return d;
             })} />
         )}
       </div>
+      {rahbar && <DailyReportSettings data={data} onUpdate={s => setData(p => ({...p, settings:s}))} />}
 
       {openStat && (
         <Card
@@ -10801,7 +11468,10 @@ function KpiEditCard({ value, history, onAdd }) {
   const [val, setVal] = useState("");
   const [reason, setReason] = useState("");
   const [showHistory, setShowHistory] = useState(false);
-  const total = (history || []).reduce((s, h) => s + num(h.amount), 0);
+  // "history"dan (barcha vaqt yozuvlaridan) qayta hisoblanmaydi — shunday
+  // qilinganida eski oylar hech qachon yopilmay, doim o'sib boruvchi umumiy
+  // summa ko'rsatilardi. "value" — AnalyticsTab'dan keladi va faqat JORIY oy
+  // bo'yicha hisoblangan.
 
   if (editing) return (
     <div style={{ background: T.s1, border: `1px solid ${T.flame}60`, borderRadius: 12, padding: "15px 17px" }}>
@@ -10827,7 +11497,7 @@ function KpiEditCard({ value, history, onAdd }) {
           </button>
         )}
       </div>
-      <div className="mo bc" style={{ fontSize: 19, fontWeight: 700, color: T.gold }} onClick={() => setEditing(true)}>{fmtSum(total || value)}</div>
+      <div className="mo bc" style={{ fontSize: 19, fontWeight: 700, color: T.gold }} onClick={() => setEditing(true)}>{fmtSum(value)}</div>
       <div onClick={() => setEditing(true)} style={{ fontSize: 10.5, color: T.muted, marginTop: 4, cursor: "pointer" }}>+ Yangi KPI qo'shish</div>
       {showHistory && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}`, display: "grid", gap: 5 }}>
@@ -10845,3 +11515,84 @@ function KpiEditCard({ value, history, onAdd }) {
     </div>
   );
 }
+
+// === KUNLIK HISOBOT SOZLAMALARI (v60) ===
+function DailyReportSettings({ data, onUpdate }) {
+  const settings = data.settings || {};
+  const [method, setMethod] = React.useState(settings.dailyReportMethod || "");
+  const [phone, setPhone] = React.useState(settings.dailyReportPhone || "");
+  const [chatId, setChatId] = React.useState(settings.dailyReportChat || "");
+  const [showTest, setShowTest] = React.useState(false);
+  const [testStatus, setTestStatus] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  const handleSave = () => {
+    onUpdate({ ...settings, dailyReportMethod: method, dailyReportPhone: phone, dailyReportChat: chatId });
+  };
+
+  const sendTestReport = async () => {
+    setLoading(true); setTestStatus("Yuborilmoqda...");
+    try {
+      const res = await fetch("/api/daily-report", { method: "POST", headers: { "Content-Type": "application/json", "authorization": "Bearer test" } });
+      const result = await res.json();
+      if (res.ok) {
+        if (method === "whatsapp" && result.sentWhatsApp) setTestStatus("OK - WhatsApp yuborildi!");
+        else if (method === "telegram" && result.sentTelegram) setTestStatus("OK - Telegram yuborildi!");
+        else setTestStatus("Hisobot yaratildi, lekin yuborilmadi (sozlamani tekshiring)");
+      } else { setTestStatus("Xato: " + (result.error || "Noma'lum")); }
+    } catch (e) { setTestStatus("Xato: " + e.message); }
+    setLoading(false);
+  };
+
+  const isChanged = method !== (settings.dailyReportMethod || "") ||
+                    phone !== (settings.dailyReportPhone || "") ||
+                    chatId !== (settings.dailyReportChat || "");
+
+  return (
+    <Card title="Kunlik Sklad Hisoboti" pad={true}>
+      <p style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>
+        Har kuni 00:30 da sklad kirim/chiqim hisobotini avtomatik yuboradi.
+      </p>
+      <F label="Yuborish usuli">
+        <div style={{ display: "flex", gap: 16 }}>
+          {["whatsapp","telegram",""].map(v => (
+            <label key={v} style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer" }}>
+              <input type="radio" value={v} checked={method===v} onChange={e=>setMethod(e.target.value)} />
+              <span>{v==="whatsapp"?"WhatsApp":v==="telegram"?"Telegram":"O'chirilgan"}</span>
+            </label>
+          ))}
+        </div>
+      </F>
+      {method === "whatsapp" && (
+        <F label="WhatsApp telefon (+998...)">
+          <input type="tel" style={iSt} placeholder="+998901234567" value={phone} onChange={e=>setPhone(e.target.value)} />
+        </F>
+      )}
+      {method === "telegram" && (
+        <F label="Telegram Chat ID">
+          <input type="text" style={iSt} placeholder="123456789" value={chatId} onChange={e=>setChatId(e.target.value)} />
+        </F>
+      )}
+      <div style={{ display:"flex", gap:10, marginTop:14 }}>
+        <SaveBtn onClick={handleSave} disabled={!isChanged} color={T.blue}>
+          <Save size={14}/> Saqlash
+        </SaveBtn>
+        {(method==="whatsapp"||method==="telegram") && (
+          <SaveBtn onClick={()=>setShowTest(p=>!p)} color={T.purple}>
+            <RefreshCw size={14}/> Test
+          </SaveBtn>
+        )}
+      </div>
+      {showTest && (
+        <div style={{ marginTop:12, padding:10, backgroundColor:"#f5f5f5", borderRadius:6, fontSize:13 }}>
+          <div style={{ marginBottom:8 }}>{testStatus || "Test yuborish uchun bosing"}</div>
+          <button onClick={sendTestReport} disabled={loading} style={{ padding:"6px 12px", backgroundColor:"#2196F3", color:"#fff", border:"none", borderRadius:4, cursor:"pointer", fontSize:12 }}>
+            {loading ? "Yuborilmoqda..." : "Hozir yuborish"}
+          </button>
+        </div>
+      )}
+    </Card>
+  );
+}
+// === KUNLIK HISOBOT OXIRI ===
+
