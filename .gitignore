@@ -8,3 +8,11 @@ node_modules
 
 .vercel
 .env*
+
+# Debug / patch fayllari (repo'da kerak emas)
+patch_*.py
+patch-*.ps1
+*.v60backup
+*.v61backup
+*.backup
+*.txt
