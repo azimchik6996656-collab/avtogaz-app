@@ -4,37 +4,45 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// MUHIM: Supabase client endi LAZY (funksiya ichida) yaratiladi.
+// Bu build vaqtida (Next.js "Collecting page data" bosqichida) xato
+// bermasligi uchun kerak — chunki module-level throw butun build'ni yiqitadi.
+function getSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Supabase environment variables not found");
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Supabase environment variables not found");
+  }
+
+  return createClient(supabaseUrl, supabaseKey);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 // Helper functions
-const formatSum = (num) => {
-  if (!num) return "0";
+const num = (v) => {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
+const formatSum = (n) => {
+  if (!n) return "0";
   return new Intl.NumberFormat("uz-UZ", {
     style: "currency",
     currency: "UZS",
   })
-    .format(num)
+    .format(n)
     .replace("UZS", "so'm");
 };
 
 const generateStockReport = (data) => {
   const today = new Date().toISOString().slice(0, 10);
-  
-  // Bugun kiritilgan stockIns
+
   const todayIns = (data.stockIns || []).filter(
     (s) => s.createdAt?.slice(0, 10) === today
   );
 
-  // Bugun chiqarilgan stockOuts
   const todayOuts = (data.stockOuts || []).filter(
-    (s) => s.createdAt?.slice(0, 10) === today
+    (s) => s.date === today || s.createdAt?.slice(0, 10) === today
   );
 
   const insTotal = todayIns.reduce((sum, s) => sum + (num(s.totalSum) || 0), 0);
@@ -43,16 +51,13 @@ const generateStockReport = (data) => {
   let report = `📦 SKLAD HISOBOTI - ${today}\n`;
   report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  // KIRIM
   report += `📥 KIRIM (${todayIns.length} ta)\n`;
   report += `├─ Jami: ${formatSum(insTotal)}\n`;
   if (todayIns.length > 0) {
     report += `├─ Mahsulotlar:\n`;
     const bySupplier = {};
     todayIns.forEach((s) => {
-      if (!bySupplier[s.supplier]) {
-        bySupplier[s.supplier] = [];
-      }
+      if (!bySupplier[s.supplier]) bySupplier[s.supplier] = [];
       bySupplier[s.supplier].push(s);
     });
 
@@ -63,9 +68,7 @@ const generateStockReport = (data) => {
         const isLast = idx === items.length - 1;
         report += `│  │  ${isLast ? "└─" : "├─"} ${item.productName} (${item.qty} ${item.unit}) — ${formatSum(item.totalSum)}\n`;
       });
-      if (items.length > 3) {
-        report += `│  │  └─ +${items.length - 3} ta boshqa...\n`;
-      }
+      if (items.length > 3) report += `│  │  └─ +${items.length - 3} ta boshqa...\n`;
       report += `│  └─ Subtotal: ${formatSum(supplierSum)}\n`;
     });
   } else {
@@ -73,19 +76,16 @@ const generateStockReport = (data) => {
   }
 
   report += `\n`;
-
-  // CHIQIM
   report += `📤 CHIQIM (${todayOuts.length} ta)\n`;
   report += `├─ Jami: ${formatSum(outsTotal)}\n`;
   if (todayOuts.length > 0) {
     report += `├─ Mahsulotlar:\n`;
     todayOuts.slice(0, 5).forEach((s, idx) => {
       const isLast = idx === todayOuts.length - 1;
-      report += `│  ${isLast ? "└─" : "├─"} ${s.productName} (${s.qty}) — ${formatSum(s.amountSum)}\n`;
+      const time = s.time ? ` (${s.time})` : "";
+      report += `│  ${isLast ? "└─" : "├─"} ${s.productName}${time} (${s.qty}) — ${formatSum(s.amountSum)}\n`;
     });
-    if (todayOuts.length > 5) {
-      report += `└─ +${todayOuts.length - 5} ta boshqa...\n`;
-    }
+    if (todayOuts.length > 5) report += `└─ +${todayOuts.length - 5} ta boshqa...\n`;
   } else {
     report += `└─ Chiqim yo'q\n`;
   }
@@ -98,13 +98,12 @@ const generateStockReport = (data) => {
 };
 
 const sendWhatsApp = async (phoneNumber, message) => {
-  // Twilio API orqali WhatsApp yuborish
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromPhone = process.env.TWILIO_WHATSAPP_FROM; // wa:+998901234567
+  const fromPhone = process.env.TWILIO_WHATSAPP_FROM;
 
   if (!accountSid || !authToken || !fromPhone) {
-    console.log("WhatsApp sozlamalari topilmadi. Hisobot faqat logga yozildi.");
+    console.log("WhatsApp sozlamalari topilmadi.");
     return false;
   }
 
@@ -119,9 +118,7 @@ const sendWhatsApp = async (phoneNumber, message) => {
       {
         method: "POST",
         headers: {
-          Authorization:
-            "Basic " +
-            Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
+          Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: encoded,
@@ -132,7 +129,6 @@ const sendWhatsApp = async (phoneNumber, message) => {
       console.error("Twilio xatosi:", await response.text());
       return false;
     }
-
     return true;
   } catch (error) {
     console.error("WhatsApp yuborishda xato:", error);
@@ -141,11 +137,10 @@ const sendWhatsApp = async (phoneNumber, message) => {
 };
 
 const sendTelegram = async (chatId, message) => {
-  // Telegram Bot API orqali yuborish
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
   if (!token) {
-    console.log("Telegram sozlamalari topilmadi. Hisobot faqat logga yozildi.");
+    console.log("Telegram sozlamalari topilmadi.");
     return false;
   }
 
@@ -153,18 +148,13 @@ const sendTelegram = async (chatId, message) => {
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: "HTML",
-      }),
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" }),
     });
 
     if (!response.ok) {
       console.error("Telegram xatosi:", await response.text());
       return false;
     }
-
     return true;
   } catch (error) {
     console.error("Telegram yuborishda xato:", error);
@@ -172,14 +162,8 @@ const sendTelegram = async (chatId, message) => {
   }
 };
 
-const num = (v) => {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-};
-
 export async function POST(request) {
   try {
-    // Vercel Cron orqali chaqirilishi uchun himoya
     const authHeader = request.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
 
@@ -187,7 +171,9 @@ export async function POST(request) {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // Supabase'dan avtogaz ma'lumotlarini olish
+    // Supabase client faqat SHU YERDA, chaqirilganda yaratiladi (build vaqtida emas)
+    const supabase = getSupabase();
+
     const { data: staffData, error } = await supabase
       .from("staff")
       .select("data")
@@ -199,33 +185,20 @@ export async function POST(request) {
     }
 
     const appData = JSON.parse(staffData.data);
-
-    // Hisobot yaratish
     const report = generateStockReport(appData);
 
-    // Xabarnoma sozlamalarini olish
     const notificationPhone = appData.settings?.dailyReportPhone || "";
     const notificationChat = appData.settings?.dailyReportChat || "";
-    const notificationMethod = appData.settings?.dailyReportMethod || ""; // "whatsapp", "telegram"
+    const notificationMethod = appData.settings?.dailyReportMethod || "";
 
-    let results = {
-      generated: true,
-      report: report,
-      sentWhatsApp: false,
-      sentTelegram: false,
-    };
+    let results = { generated: true, report, sentWhatsApp: false, sentTelegram: false };
 
-    // WhatsApp orqali yuborish
     if (notificationMethod === "whatsapp" && notificationPhone) {
       results.sentWhatsApp = await sendWhatsApp(notificationPhone, report);
     }
-
-    // Telegram orqali yuborish
     if (notificationMethod === "telegram" && notificationChat) {
       results.sentTelegram = await sendTelegram(notificationChat, report);
     }
-
-    // Agar hech narsa sozlanmagan bo'lsa, faqat logga yozing
     if (!notificationMethod || (!notificationPhone && !notificationChat)) {
       console.log("Kunlik hisobot (sozlanmagan yuborish):\n" + report);
     }
@@ -243,7 +216,6 @@ export async function POST(request) {
   }
 }
 
-// Yuborish uchun manual test endpoint
 export async function GET(request) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
@@ -252,6 +224,5 @@ export async function GET(request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // POST orqali yuboring
   return new Response("Use POST method", { status: 405 });
 }
