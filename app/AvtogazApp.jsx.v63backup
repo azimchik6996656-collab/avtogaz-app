@@ -3292,7 +3292,7 @@ export default function App({ branchId = "main" }) {
     { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad", "usta_station"] },
     { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar"] },
     { id: "quote",     label: "Kommertsiya taklifi", Icon: FileText, roles: ["azim", "kassir", "rahbar"] },
-    { id: "ishvaqti",  label: "Ish vaqti",     Icon: Clock,      roles: ["azim", "rahbar", "sklad", "kassir", "usta"] },
+    { id: "ishvaqti",  label: "Ish vaqti",     Icon: Clock,      roles: ["azim", "rahbar", "sklad", "kassir"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
     { id: "warranty",  label: "Kafolat",       Icon: ShieldCheck,roles: ["azim", "kassir"] },
@@ -6710,7 +6710,6 @@ function WarehouseTab({ data, patch, rate, role }) {
               empty="Kirim yo'q"
               amountFn={(r) => num(r.totalSum)}
               cols={[
-                { k: "time", h: "Vaqt", r: (r) => <span className="mo" style={{ fontSize: 12, color: T.muted }}>{r.time || "—"}</span> },
                 { k: "productName", h: "Mahsulot" },
                 { k: "qty", h: "Miqdor", r: (r) => <span>{r.qty} {r.unit}{r.convQty ? <span style={{ color: T.muted, fontSize: 11 }}> ({r.convQty} {r.convUnitUsed})</span> : null}</span> },
                 { k: "sourceType", h: "Manba", r: (r) => <Badge color={r.sourceType === "Ta'minotchi" ? T.red : r.sourceType === "Insider servis" ? T.purple : T.teal}>{r.sourceType || "Ta'minotchi"}</Badge> },
@@ -6935,7 +6934,7 @@ function WorkTimeTab({ data, patch, role, staffName }) {
 
   const myName = staffName || ROLE_LABELS[role] || role;
   const shifts = data.shifts || [];
-  const isWorker = role === "sklad" || role === "kassir" || role === "usta";
+  const isWorker = role === "sklad" || role === "kassir";
   const today = todayISO();
 
   const myOpenShift = shifts.find((s) => s.role === role && s.name === myName && !s.clockOut);
