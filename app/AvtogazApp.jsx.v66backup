@@ -11293,7 +11293,7 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
             })} />
         )}
       </div>
-      {!readOnly && <DailyReportSettings data={data} onUpdate={(s) => patch((d) => { d.settings = s; return d; })} />}
+      {rahbar && <DailyReportSettings data={data} onUpdate={s => setData(p => ({...p, settings:s}))} />}
 
       {openStat && (
         <Card

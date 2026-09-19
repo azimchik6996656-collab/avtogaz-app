@@ -3290,7 +3290,7 @@ export default function App({ branchId = "main" }) {
     { id: "dashboard", label: "Bosh sahifa",  Icon: Zap,        roles: ["azim", "kassir"] },
     { id: "callcenter",label: "Qo'ng'iroqlar", Icon: PhoneCall,  roles: ["azim", "kassir"] },
     { id: "services",  label: "Kartalar",      Icon: Car,        roles: ["azim", "kassir", "usta", "rahbar", "sklad", "usta_station"] },
-    { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar", "sklad"] },
+    { id: "warehouse", label: "Sklad",         Icon: Package,    roles: ["azim", "kassir", "rahbar"] },
     { id: "quote",     label: "Kommertsiya taklifi", Icon: FileText, roles: ["azim", "kassir", "rahbar"] },
     { id: "ishvaqti",  label: "Ish vaqti",     Icon: Clock,      roles: ["azim", "rahbar", "sklad", "kassir", "usta"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
@@ -11293,7 +11293,7 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
             })} />
         )}
       </div>
-      {!readOnly && <DailyReportSettings data={data} onUpdate={(s) => patch((d) => { d.settings = s; return d; })} />}
+      {rahbar && <DailyReportSettings data={data} onUpdate={s => setData(p => ({...p, settings:s}))} />}
 
       {openStat && (
         <Card
