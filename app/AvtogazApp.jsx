@@ -11724,7 +11724,7 @@ function DailyReportSettings({ data, onUpdate }) {
   const sendTestReport = async () => {
     setLoading(true); setTestStatus("Yuborilmoqda...");
     try {
-      const res = await fetch("/api/daily-report", { method: "POST", headers: { "Content-Type": "application/json", "authorization": "Bearer test" } });
+      const res = await fetch("/api/daily-report", { method: "POST", headers: { "Content-Type": "application/json", "authorization": "Bearer " + (process.env.NEXT_PUBLIC_CRON_SECRET || "") } });
       const result = await res.json();
       if (res.ok) {
         if (method === "whatsapp" && result.sentWhatsApp) setTestStatus("OK - WhatsApp yuborildi!");

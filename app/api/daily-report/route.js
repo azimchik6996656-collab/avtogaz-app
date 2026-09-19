@@ -37,12 +37,37 @@ const formatSum = (n) => {
 const generateFinancialReport = (data) => {
   const today = new Date().toISOString().slice(0, 10);
 
-  const todayFlow = (data.cashflow || []).filter((c) => c.date === today);
-  const kirimlar = todayFlow.filter((c) => c.type === "kirim");
-  const chiqimlar = todayFlow.filter((c) => c.type === "chiqim");
+  const allFlow = data.cashflow || [];
+  // MUHIM: kassa (naqd pul) balansi faqat "Naqd pul" to'lovlarini hisobga oladi.
+  // Karta/Bank o'tkazma orqali kelgan pul jismoniy kassada emas, bankda turadi.
+  // paymentType ko'rsatilmagan yozuvlar (masalan usta/rahbar haqi) odatda naqd
+  // hisoblanadi, shuning uchun default sifatida "naqd" deb olinadi.
+  const isCash = (c) => !c.paymentType || c.paymentType === "Naqd pul";
+
+  const todayFlow = allFlow.filter((c) => c.date === today);
+  const todayCashFlow = todayFlow.filter(isCash);
+  const kirimlar = todayCashFlow.filter((c) => c.type === "kirim");
+  const chiqimlar = todayCashFlow.filter((c) => c.type === "chiqim");
+
+  // Naqd bo'lmagan (karta/bank) kirimlar — alohida ko'rsatish uchun
+  const nonCashKirim = todayFlow.filter((c) => c.type === "kirim" && !isCash(c))
+    .reduce((s, c) => s + num(c.amountSum), 0);
+
+  // Kassa balansi: bugungacha bo'lgan BARCHA NAQD harakatlar yig'indisi = ERTALABKI qoldiq
+  const oldingiFlow = allFlow.filter((c) => c.date < today && isCash(c));
+  const boshlangichQoldiq = oldingiFlow.reduce(
+    (s, c) => s + (c.type === "kirim" ? num(c.amountSum) : -num(c.amountSum)), 0
+  );
 
   const jamiKirim = kirimlar.reduce((s, c) => s + num(c.amountSum), 0);
-  const jamiChiqim = chiqimlar.reduce((s, c) => s + num(c.amountSum), 0);
+
+  // "Rahbarga chiqim" — bu oddiy operatsion xarajat emas, balki rahbarning
+  // ALLAQACHON topilgan foydadan shaxsan pul olishi (distribution). Shuning
+  // uchun bu sof foyda hisobidan chiqarib tashlanadi, aks holda hisobot
+  // noto'g'ri (haqiqatda ijobiy bo'lgan kun) manfiy ko'rsatishi mumkin.
+  const chiqimOperatsion = chiqimlar.filter((c) => c.category !== "Rahbarga chiqim");
+  const rahbarOlgan = chiqimlar.filter((c) => c.category === "Rahbarga chiqim").reduce((s, c) => s + num(c.amountSum), 0);
+  const jamiChiqim = chiqimOperatsion.reduce((s, c) => s + num(c.amountSum), 0);
   const sofFoyda = jamiKirim - jamiChiqim;
 
   // Kategoriya bo'yicha guruhlash
@@ -56,17 +81,12 @@ const generateFinancialReport = (data) => {
   };
 
   const kirimByCategory = groupByCategory(kirimlar);
-  const chiqimByCategory = groupByCategory(chiqimlar);
-
-  // Bugun yakunlangan xizmat kartalari
-  const finishedToday = (data.serviceCards || []).filter(
-    (card) => card.status && card.status !== "ochiq" && card.finalizedDate === today
-  );
-  const cardsRevenue = finishedToday.reduce((s, c) => s + num(c.finalTotal), 0);
-  const cardsProfit = finishedToday.reduce((s, c) => s + num(c.profitSum), 0);
+  const chiqimByCategory = groupByCategory(chiqimOperatsion);
 
   let report = `\ud83d\udcb0 MOLIYAVIY HISOBOT - ${today}\n`;
   report += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n`;
+
+  report += `\ud83c\udfe6 Ertalabki qoldiq: ${formatSum(boshlangichQoldiq)}\n\n`;
 
   report += `\ud83d\udcc8 KIRIM (${kirimlar.length} ta) \u2014 Jami: ${formatSum(jamiKirim)}\n`;
   if (kirimByCategory.length > 0) {
@@ -74,6 +94,10 @@ const generateFinancialReport = (data) => {
       const isLast = idx === Math.min(kirimByCategory.length, 6) - 1;
       report += `${isLast ? "\u2514\u2500" : "\u251c\u2500"} ${cat}: ${formatSum(sum)}\n`;
     });
+  }
+
+  if (nonCashKirim > 0) {
+    report += `\n\ud83d\udcb3 (Naqd emas — karta/bank): ${formatSum(nonCashKirim)}\n`;
   }
 
   report += `\n\ud83d\udcc9 CHIQIM (${chiqimlar.length} ta) \u2014 Jami: ${formatSum(jamiChiqim)}\n`;
@@ -84,13 +108,15 @@ const generateFinancialReport = (data) => {
     });
   }
 
-  report += `\n\ud83d\ude97 XIZMAT KARTALARI\n`;
-  report += `\u251c\u2500 Yakunlangan: ${finishedToday.length} ta\n`;
-  report += `\u251c\u2500 Tushum: ${formatSum(cardsRevenue)}\n`;
-  report += `\u2514\u2500 Foyda: ${formatSum(cardsProfit)}\n`;
+  if (rahbarOlgan > 0) {
+    report += `\n\ud83d\udc64 Rahbar shaxsan oldi: ${formatSum(rahbarOlgan)} (sof foydadan, xarajat sifatida hisoblanmaydi)\n`;
+  }
 
   report += `\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n`;
-  report += `\ud83d\udcb5 SOF FOYDA (kirim \u2212 chiqim): ${formatSum(sofFoyda)}\n`;
+  report += `\ud83d\udcb5 SOF FOYDA (operatsion, Rahbar ulushisiz): ${formatSum(sofFoyda)}\n`;
+
+  const yakuniyQoldiq = boshlangichQoldiq + jamiKirim - jamiChiqim - rahbarOlgan;
+  report += `\ud83c\udfe6 Kechqurungi qoldiq: ${formatSum(yakuniyQoldiq)}\n`;
   report += `\u23f0 ${new Date().toLocaleTimeString("uz-UZ")}\n`;
 
   return report;
@@ -230,23 +256,51 @@ export async function POST(request) {
     const cronSecret = process.env.CRON_SECRET;
 
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return new Response("Unauthorized", { status: 401 });
+      // VAQTINCHA DEBUG — muammo topilgach olib tashlanadi
+      return new Response(JSON.stringify({
+        error: "Unauthorized",
+        debug: {
+          receivedHeader: authHeader || "(bo'sh)",
+          receivedHeaderLength: (authHeader || "").length,
+          expectedSecretLength: cronSecret.length,
+          expectedSecretFirst4: cronSecret.slice(0, 4),
+          expectedSecretLast4: cronSecret.slice(-4),
+        }
+      }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
 
     // Supabase client faqat SHU YERDA, chaqirilganda yaratiladi (build vaqtida emas)
     const supabase = getSupabase();
 
-    const { data: staffData, error } = await supabase
-      .from("staff")
+    // MUHIM: jadval "app_data", id = filial ("main"), haqiqiy ilova state'i
+    // "data" ustuni ichida STORAGE_KEY ("avtogaz-v2") kaliti ostida saqlanadi.
+    const STORAGE_KEY = "avtogaz-v2";
+    const branchId = "main";
+
+    const { data: row, error } = await supabase
+      .from("app_data")
       .select("data")
-      .eq("id", "main")
+      .eq("id", branchId)
       .single();
 
-    if (error || !staffData?.data) {
-      return new Response("Data not found", { status: 404 });
+    if (error || !row?.data) {
+      return new Response(JSON.stringify({ error: "Data not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const appData = JSON.parse(staffData.data);
+    const bag = row.data || {};
+    const wrapper = bag[STORAGE_KEY];
+    const appData = wrapper && wrapper.data;
+
+    if (!appData) {
+      return new Response(JSON.stringify({ error: "App state not found under STORAGE_KEY" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const stockReport = generateStockReport(appData);
     const financialReport = generateFinancialReport(appData);
     const report = financialReport + "\n\n" + stockReport;
