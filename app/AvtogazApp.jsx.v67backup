@@ -3633,7 +3633,7 @@ function DashboardTab({ data, patch, rate, setTab }) {
       d.ustaLedger.forEach((e) => { if (!e.paid) e.paid = true; });
       groups.forEach((g) => {
         d.cashflow.unshift({
-          id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi",
+          id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi",
           currency: "SUM", amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate,
           note: `${g.usta} — kun yakunida to'landi (${g.count} ta xizmat)`,
         });
@@ -4712,7 +4712,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
             });
           } else {
             d.cashflow.unshift({
-              id: (() => { const _cfid = uid(); card.cashflowIds.push(_cfid); return _cfid; })(), time: nowTime(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi",
+              id: (() => { const _cfid = uid(); card.cashflowIds.push(_cfid); return _cfid; })(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi",
               currency: line.currency, amount: line.amount, amountSum: line.amountSum,
               amountUsd: line.currency === "USD" ? line.amount : line.amountSum / rate,
               paymentType: line.paymentType,
@@ -4722,7 +4722,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         });
       } else if (fin.finalTotal > 0 && !isNasiya) {
         d.cashflow.unshift({
-          id: (() => { const _cfid = uid(); card.cashflowIds.push(_cfid); return _cfid; })(), time: nowTime(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi",
+          id: (() => { const _cfid = uid(); card.cashflowIds.push(_cfid); return _cfid; })(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi",
           currency: "SUM", amount: fin.finalTotal, amountSum: fin.finalTotal,
           amountUsd: fin.finalTotal / rate, paymentType: card.paymentType,
           note: `${card.serviceType} — ${card.carModel || ""} (${card.plate})`,
@@ -4737,7 +4737,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
       }
       if (fin.docFee > 0) {
         d.cashflow.unshift({
-          id: (() => { const _cfid = uid(); card.cashflowIds.push(_cfid); return _cfid; })(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Hujjat xarajati",
+          id: (() => { const _cfid = uid(); card.cashflowIds.push(_cfid); return _cfid; })(), date: todayISO(), type: "chiqim", category: "Hujjat xarajati",
           currency: "SUM", amount: fin.docFee, amountSum: fin.docFee, amountUsd: fin.docFee / rate,
           note: `${card.plate} — hujjat xarajati`,
         });
@@ -4833,7 +4833,7 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
         const _cfid = uid();
         card.cashflowIds.push(_cfid);
         d.cashflow.unshift({
-          id: _cfid, time: nowTime(), date: card.date || todayISO(), type: "kirim", category: "Xizmat to'lovi",
+          id: _cfid, date: card.date || todayISO(), type: "kirim", category: "Xizmat to'lovi",
           currency: "SUM", amount: updated.finalTotal, amountSum: updated.finalTotal,
           amountUsd: updated.finalTotal / rate, paymentType: card.paymentType,
           note: `${card.serviceType} — ${card.carModel || ""} (${card.plate}) — tahrirlangan`,
@@ -6505,7 +6505,7 @@ function WarehouseTab({ data, patch, rate, role }) {
       });
 
       if (entry.sourceType === "Ta'minotchi" && entry.paidSum > 0) {
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: entry.date, type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: entry.paidSum, amountSum: entry.paidSum, amountUsd: entry.paidSum / rate, supplier: entry.supplier, note: `${product.name} x${entry.qty} — kirim to'lovi` });
+        d.cashflow.unshift({ id: uid(), date: entry.date, type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: entry.paidSum, amountSum: entry.paidSum, amountUsd: entry.paidSum / rate, supplier: entry.supplier, note: `${product.name} x${entry.qty} — kirim to'lovi` });
       }
       return d;
     });
@@ -6577,7 +6577,7 @@ function WarehouseTab({ data, patch, rate, role }) {
 
       if (sale.paidSum > 0) {
         d.cashflow.unshift({
-          id: uid(), time: nowTime(), date: sale.date, type: "kirim", category: "Ulgurji savdo",
+          id: uid(), date: sale.date, type: "kirim", category: "Ulgurji savdo",
           currency: "SUM", amount: sale.paidSum, amountSum: sale.paidSum, amountUsd: sale.paidSum / rate,
           paymentType: sale.paymentType === "Nasiya (qarzga)" ? "Naqd pul" : sale.paymentType,
           note: `${itemsLabel} — ${sale.customer}`,
@@ -7757,7 +7757,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
     runLocked(() => patch((d) => {
       const res = applyDebtSettlement(d, { kind: "supplier", id: supplierName, name: supplierName }, amountSum);
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Ta'minotchiga to'lov",
+        id: uid(), date: todayISO(), type: "chiqim", category: "Ta'minotchiga to'lov",
         currency: meta.currency || "SUM", amount: meta.amountOriginal ?? amountSum, amountSum,
         amountUsd: (meta.currency === "USD" ? meta.amountOriginal : amountSum / rate) || amountSum / rate,
         paymentType: meta.paymentType, supplier: supplierName,
@@ -7777,7 +7777,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
         if (n.paidAmount >= num(n.amountSum) - 0.5) n.paid = true;
       }
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi",
+        id: uid(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi",
         currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate,
         paymentType: "Naqd pul",
         note: `Nasiya to'lovi (${n?.paid ? "to'liq" : "qisman"}) — ${n?.plate || ""} (${n?.serviceType || ""})`,
@@ -7801,7 +7801,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
         });
       }
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Shaxsiy qarz berildi",
+        id: uid(), date: todayISO(), type: "chiqim", category: "Shaxsiy qarz berildi",
         currency: item.currency || "SUM", amount: item.amountOriginal ?? item.amountSum, amountSum: item.amountSum,
         amountUsd: item.currency === "USD" ? item.amountOriginal : item.amountSum / rate,
         note: `${item.name} — naqd qarz${item.note ? ` (${item.note})` : ""}`,
@@ -7818,7 +7818,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
         if (p.paidAmount >= num(p.amountSum) - 0.5) p.paid = true;
       }
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Shaxsiy qarz qaytdi",
+        id: uid(), date: todayISO(), type: "kirim", category: "Shaxsiy qarz qaytdi",
         currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate,
         note: `${p?.name || ""} — qarz qaytdi (${p?.paid ? "to'liq" : "qisman"})`,
       });
@@ -8899,7 +8899,7 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
     patch((d) => {
       d.ustaLedger.forEach((e) => { if (g.ids.includes(e.id)) e.paid = true; });
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
         amount: g.amountSum, amountSum: g.amountSum, amountUsd: g.amountSum / rate,
         note: g.date ? `${g.usta} — ${fmtDate(g.date)} (${g.count} ta)` : `${g.usta} — (${g.count} ta)`,
         ustaLedgerIds: g.ids,
@@ -8924,14 +8924,14 @@ function UstaTab({ data, patch, rate, canManage = true, ustaName }) {
       const closeId = uid();
       const shogirtLedgerId = amt > 0 ? uid() : undefined;
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+        id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
         amount: ustaAmt, amountSum: ustaAmt, amountUsd: ustaAmt / rate,
         note: amt > 0 ? `${label} — shogirt (${shogirtName}) uchun ${fmtSum(amt)} ajratildi` : label,
         ustaLedgerIds: g.ids, ustaCloseId: closeId,
       });
       if (amt > 0) {
         d.cashflow.unshift({
-          id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
+          id: uid(), date: todayISO(), type: "chiqim", category: "Usta xizmat haqi", currency: "SUM",
           amount: amt, amountSum: amt, amountUsd: amt / rate,
           note: `${shogirtName} — ${g.usta} shogirt ulushi`,
           ustaCloseId: closeId, shogirtLedgerId,
@@ -9342,7 +9342,7 @@ function WarrantyTab({ data, patch, rate }) {
       d.warrantyClaims.unshift({ id: uid(), ...claim });
       // Faqat usta haqi bo'lsa kassaga yoziladi
       if (claim.ustaFeeCharged > 0) {
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi", currency: "SUM", amount: claim.ustaFeeCharged, amountSum: claim.ustaFeeCharged, amountUsd: 0, note: `Kafolat — usta haqi — ${claim.plate}` });
+        d.cashflow.unshift({ id: uid(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi", currency: "SUM", amount: claim.ustaFeeCharged, amountSum: claim.ustaFeeCharged, amountUsd: 0, note: `Kafolat — usta haqi — ${claim.plate}` });
       }
       return d;
     });
@@ -9546,7 +9546,7 @@ function PartnersTab({ data, patch, rate }) {
     patch((d) => {
       d.partnerTx.unshift({ id: uid(), partnerId, date: todayISO(), type: "tolov", amountSum: payment.amountSum, currency: payment.currency, paymentType: payment.paymentType });
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Hamkordan to'lov",
+        id: uid(), date: todayISO(), type: "kirim", category: "Hamkordan to'lov",
         currency: payment.currency, amount: payment.amount, amountSum: payment.amountSum,
         amountUsd: payment.currency === "USD" ? payment.amount : payment.amountSum / rate,
         paymentType: payment.paymentType,
@@ -9953,7 +9953,7 @@ function EmployeesTab({ data, patch, rate }) {
       const paymentId = uid();
       d.employeePayments.push({ id: paymentId, employeeId, month, date: todayISO(), amountSum, note });
       d.cashflow.unshift({
-        id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Ish haqi",
+        id: uid(), date: todayISO(), type: "chiqim", category: "Ish haqi",
         currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate,
         // Bu yozuv rasmiy "Oylik to'lash" natijasi — u allaqachon employeePayments'da
         // hisoblangan. Avans qidiruvi (azimDrawEntries) uni matn bo'yicha emas, aynan
@@ -10323,7 +10323,7 @@ function DebtBookTab({ data, patch, rate, readOnly = false }) {
           if (n.paidAmount >= num(n.amountSum) - 0.5) n.paid = true;
           recordPayment(n);
         }
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, paymentType: "Naqd pul", note: `Nasiya to'lovi — ${item.name}` });
+        d.cashflow.unshift({ id: uid(), date: todayISO(), type: "kirim", category: "Xizmat to'lovi", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, paymentType: "Naqd pul", note: `Nasiya to'lovi — ${item.name}` });
       } else if (item.kind === "personal") {
         const p = (d.personalDebts || []).find((x) => x.id === item.id);
         if (p) {
@@ -10331,7 +10331,7 @@ function DebtBookTab({ data, patch, rate, readOnly = false }) {
           if (p.paidAmount >= num(p.amountSum) - 0.5) p.paid = true;
           recordPayment(p);
         }
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Shaxsiy qarz qaytdi", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, note: `${item.name} — qarz qaytdi` });
+        d.cashflow.unshift({ id: uid(), date: todayISO(), type: "kirim", category: "Shaxsiy qarz qaytdi", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, note: `${item.name} — qarz qaytdi` });
       } else if (item.kind === "old") {
         const o = (d.oldDebtors || []).find((x) => x.id === item.id);
         if (o) {
@@ -10339,7 +10339,7 @@ function DebtBookTab({ data, patch, rate, readOnly = false }) {
           if (o.paidAmount >= num(o.amountSum) - 0.5) o.paid = true;
           recordPayment(o);
         }
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Boshqa kirim", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, note: `${item.name} — eski qarz qaytdi` });
+        d.cashflow.unshift({ id: uid(), date: todayISO(), type: "kirim", category: "Boshqa kirim", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, note: `${item.name} — eski qarz qaytdi` });
       } else if (item.kind === "wholesale") {
         const w = (d.wholesaleDebts || []).find((x) => x.id === item.id);
         if (w) {
@@ -10347,7 +10347,7 @@ function DebtBookTab({ data, patch, rate, readOnly = false }) {
           if (w.paidAmount >= num(w.amountSum) - 0.5) w.paid = true;
           recordPayment(w);
         }
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "kirim", category: "Ulgurji savdo", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, note: `Ulgurji qarz to'lovi — ${item.name}` });
+        d.cashflow.unshift({ id: uid(), date: todayISO(), type: "kirim", category: "Ulgurji savdo", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, note: `Ulgurji qarz to'lovi — ${item.name}` });
       } else if (item.kind === "supplier") {
         let remaining = amountSum;
         const open = d.stockIns.filter((s) => sameName(s.supplier, item.name) && num(s.totalSum) - num(s.paidSum) > 0.5).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -10372,7 +10372,7 @@ function DebtBookTab({ data, patch, rate, readOnly = false }) {
             remaining -= pay;
           }
         }
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, supplier: item.name, note: `Qarz to'lovi — ${item.name}` });
+        d.cashflow.unshift({ id: uid(), date: todayISO(), type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, supplier: item.name, note: `Qarz to'lovi — ${item.name}` });
       }
       return d;
     }));
