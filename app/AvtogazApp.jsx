@@ -970,17 +970,30 @@ function Modal({ title, onClose, children, wide, xwide }) {
 }
 
 function SaveBtn({ onClick, disabled, children = "Saqlash", color }) {
+  // MUHIM: ikki marta bosishdan himoya — bosilgan zahoti tugma darhol
+  // o'chadi, shuning uchun tez ketma-ket ikkinchi bosish (masalan "Ta'minotchiga
+  // to'lov" kabi joylarda) ikki marta yozuv/to'lov yaratmaydi. Modal odatda
+  // onSave ichida yopiladi va komponent unmount bo'ladi, lekin har ehtimolga
+  // qarshi 2 soniyadan keyin avtomatik qayta yoqiladi.
+  const [justClicked, setJustClicked] = useState(false);
+  const isDisabled = disabled || justClicked;
+  const handleClick = (e) => {
+    if (isDisabled) return;
+    setJustClicked(true);
+    setTimeout(() => setJustClicked(false), 2000);
+    onClick && onClick(e);
+  };
   return (
-    <button onClick={onClick} disabled={disabled} type="button" className="btn" style={{
+    <button onClick={handleClick} disabled={isDisabled} type="button" className="btn" style={{
       width: "100%", marginTop: 18, padding: "12px", borderRadius: 10, border: "none",
-      background: disabled
+      background: isDisabled
         ? T.s3
         : color
           ? `linear-gradient(180deg,${color}F2,${color} 55%,${color}CC)`
           : `linear-gradient(180deg,#E4682A,${T.flame} 55%,#C74E12)`,
-      color: disabled ? T.muted : "#fff", fontWeight: 700, fontSize: 13.5,
-      cursor: disabled ? "not-allowed" : "pointer",
-      boxShadow: disabled
+      color: isDisabled ? T.muted : "#fff", fontWeight: 700, fontSize: 13.5,
+      cursor: isDisabled ? "not-allowed" : "pointer",
+      boxShadow: isDisabled
         ? "none"
         : `inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px rgba(62,50,30,.10), 0 6px 18px ${(color || T.flame)}38`,
       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
@@ -5003,15 +5016,20 @@ function ServicesTab({ data, patch, rate, role, ustaName, saveState }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))", gap: 12 }}>
             {openCards.map((c) => (
               <div key={c.id} className="ch" onClick={() => setWorkCard(c)} style={{
-                background: T.s1, border: `1px solid ${T.border}`, borderRadius: 12,
+                background: T.s1, border: `1px solid ${T.border}`, borderRadius: 14,
                 cursor: "pointer", overflow: "hidden", transition: "all .15s",
                 borderLeft: `3px solid ${SERVICE_COLORS[c.serviceType] || T.flame}`,
+                boxShadow: T.sh1,
               }}>
                 <div style={{ padding: "13px 15px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                     <div>
-                      <div className="mo" style={{ fontSize: 15, fontWeight: 700, color: T.flame }}>{c.plate}</div>
-                      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>{c.carModel || "—"}</div>
+                      <div className="mo" style={{
+                        fontSize: 14, fontWeight: 700, color: T.flame,
+                        display: "inline-block", padding: "3px 9px", borderRadius: 7,
+                        background: T.flameD, letterSpacing: ".02em",
+                      }}>{c.plate}</div>
+                      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 5 }}>{c.carModel || "—"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       {c.pendingConfirm && !isUsta && <Badge color={T.purple}>Tasdiq kutmoqda</Badge>}
@@ -7740,6 +7758,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
       const { debtSettle, ...rest } = entry;
       d.cashflow.unshift({
         id: uid(),
+        time: rest.time || nowTime(),
         ...rest,
         note: ((rest.note || "") + noteExtra).trim(),
         debtSettleKind: debtSettle?.kind || undefined,
@@ -7926,6 +7945,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
             empty={cfSearchNorm ? "Hech narsa topilmadi" : "Yozuv yo'q"}
             amountFn={(r) => (r.type === "kirim" ? 1 : -1) * (r.currency === "USD" ? num(r.amount) * rate : num(r.amountSum))}
             cols={[
+              { k: "time", h: "Vaqt", r: (r) => <span className="mo" style={{ fontSize: 11, color: T.muted }}>{r.time || "—"}</span> },
               { k: "type", h: "Turi", r: (r) => <Badge color={r.type === "kirim" ? T.teal : T.red}>{r.type === "kirim" ? "Kirim" : "Chiqim"}</Badge> },
               { k: "paymentType", h: "To'lov", r: (r) => {
                   if (r.paymentType === "Karta (Click/Payme)") return <Badge color={T.purple}>Click</Badge>;
