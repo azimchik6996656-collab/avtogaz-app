@@ -2,6 +2,9 @@
 import { storage } from "../lib/supabase";
 import { authClient } from "../lib/authClient";
 import {
+  SAVINGS_OUT_CAT, SAVINGS_IN_CAT, isSavingsEntry, savingsSummary, savingsHistoryByMonth, targetForMonth,
+} from "../lib/savings";
+import {
   hashPin, pinsMatch, getLockoutState, recordFailedPinAttempt,
   clearPinAttempts, SECURITY,
 } from "../lib/security";
@@ -10,7 +13,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import {
-  Package, Wallet, Plus, X, TrendingUp, TrendingDown, ChevronDown, Trash2,
+  Package, Wallet, Plus, X, TrendingUp, TrendingDown, ChevronDown, ChevronLeft, ChevronRight, Trash2,
   Loader2, Check, Users, Settings2, ShoppingCart, Download, Upload,
   Car, ShieldCheck, BarChart3, Handshake, RefreshCw, Wrench, Lock,
   LogOut, Delete, KeyRound, Clock, PlayCircle, PauseCircle, Phone, PhoneCall,
@@ -23,7 +26,7 @@ import {
 const STORAGE_KEY = "avtogaz-v2";
 /* Yuklanish tekshiruvi uchun — sarlavhada ko'rinadi.
    Saytda shu raqam ko'rinsa, demak eng yangi kod ishlayapti. */
-const APP_VERSION = "v59";
+const APP_VERSION = "v68";
 const ROLE_LABELS = { azim: "Azim Avazovich", kassir: "Kassir", usta: "Usta", rahbar: "Rahbar", sklad: "Sklad", usta_station: "Usta stansiyasi" };
 // Har bir filial /app/<branchId>/page.js orqali kiriladi — ROW_ID sifatida shu qiymat
 // ishlatiladi (Supabase'da mustaqil qator). Yangi filial qo'shilsa, shu yerga ham qo'shiladi.
@@ -84,6 +87,7 @@ const emptyData = () => ({
   bonusRules: [], bonusAwards: [], nasiyaDebts: [],
   employees: [], employeePayments: [],
   personalDebts: [],
+  savings: { monthlyTargets: {}, adjustments: [] }, // jamg'arma: {monthlyTargets: {"YYYY-MM": limit}, adjustments: qarzdorlardan ko'chirilganlar}. Qoldiq kassa yozuvlaridan hisoblanadi (lib/savings.js)
   contractedMasters: [], // kelishilgan (oylik) ustalar — ularning haqi servis foydasiga qo'shiladi
   productRequests: [], // ustadan kassirga mahsulot so'rovlari
   warrantyFollowups: [], // kafolat nazorati qo'ng'iroqlari jadvali (5 kun, keyin 1,3,6,9...oy)
@@ -2330,6 +2334,34 @@ function ScrollableTabs({ tabs, tab, setTab }) {
         position: "absolute", right: 0, top: 0, bottom: 0, width: 36,
         background: "linear-gradient(270deg, rgba(255,255,255,.95), rgba(255,255,255,0))", pointerEvents: "none",
       }} />}
+      {canLeft && (
+        <button
+          onClick={() => scrollRef.current?.scrollBy({ left: -220, behavior: "smooth" })}
+          style={{
+            position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)",
+            width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.border}`,
+            background: T.s1, color: T.flame, cursor: "pointer", display: "flex",
+            alignItems: "center", justifyContent: "center", boxShadow: T.sh1, zIndex: 2,
+          }}
+          aria-label="Chapga"
+        >
+          <ChevronLeft size={15} />
+        </button>
+      )}
+      {canRight && (
+        <button
+          onClick={() => scrollRef.current?.scrollBy({ left: 220, behavior: "smooth" })}
+          style={{
+            position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)",
+            width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.border}`,
+            background: T.s1, color: T.flame, cursor: "pointer", display: "flex",
+            alignItems: "center", justifyContent: "center", boxShadow: T.sh1, zIndex: 2,
+          }}
+          aria-label="O'ngga"
+        >
+          <ChevronRight size={15} />
+        </button>
+      )}
     </div>
   );
 }
@@ -3307,6 +3339,7 @@ export default function App({ branchId = "main" }) {
     { id: "quote",     label: "Kommertsiya taklifi", Icon: FileText, roles: ["azim", "kassir", "rahbar"] },
     { id: "ishvaqti",  label: "Ish vaqti",     Icon: Clock,      roles: ["azim", "rahbar", "sklad", "kassir", "usta"] },
     { id: "cashier",   label: "Kassa",         Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
+    { id: "savings",   label: "Jamg'arma",     Icon: Wallet,     roles: ["azim", "kassir", "rahbar"] },
     { id: "ustalar",   label: "Usta hisobi",   Icon: Wrench,     roles: ["azim", "kassir", "usta", "rahbar"] },
     { id: "warranty",  label: "Kafolat",       Icon: ShieldCheck,roles: ["azim", "kassir"] },
     { id: "complaints", label: "Shikoyatlar",  Icon: AlertTriangle, roles: ["azim", "rahbar"] },
@@ -3539,6 +3572,7 @@ export default function App({ branchId = "main" }) {
         {tab === "quote"      && <QuoteTab      data={data} patch={patch} />}
         {tab === "ishvaqti"   && <WorkTimeTab   data={data} patch={patch} role={role} staffName={staffName} />}
         {tab === "cashier"    && <CashierTab    data={data} patch={patch} rate={rate} readOnly={role === "rahbar"} />}
+        {tab === "savings"    && <SavingsTab    data={data} patch={patch} rate={rate} role={role} />}
         {tab === "ustalar"    && <UstaTab       data={data} patch={patch} rate={rate} canManage={role === "azim" || role === "kassir"} ustaName={ustaName} />}
         {tab === "warranty"   && <WarrantyTab   data={data} patch={patch} rate={rate} />}
         {tab === "complaints" && <ComplaintsTab data={data} patch={patch} />}
@@ -3611,6 +3645,7 @@ function DashboardTab({ data, patch, rate, setTab }) {
 
   const waitingLeads = (data.leads || []).filter((l) => l.stage === "birinchi" || l.stage === "nedozvon" || l.stage === "kelishildi");
   const supDebt = supplierDebts(data).reduce((s, d) => s + Math.max(0, d.debtSum), 0);
+  const svDash = savingsSummary(data, todayISO().slice(0, 7), todayISO());
   const pendingConfirmCards = data.serviceCards.filter((c) => c.pendingConfirm && cardStatus(c) === "ochiq");
 
   // Oxirgi 7 kunlik sof kassa harakati (kunlik kirim - chiqim, naqd, SO'M) — "Kassa balansi"
@@ -3637,6 +3672,10 @@ function DashboardTab({ data, patch, rate, setTab }) {
     waitingLeads.length > 0 && {
       text: `${waitingLeads.length} ta mijoz javob kutmoqda`,
       color: T.gold, onClick: () => setTab("callcenter"),
+    },
+    svDash.target > 0 && !svDash.reached && {
+      text: `Jamg'arma: oylik limitgacha ${fmtSum(svDash.remaining)} qoldi`,
+      color: T.gold, onClick: () => setTab("savings"),
     },
   ].filter(Boolean);
 
@@ -7674,6 +7713,351 @@ function FreeSaleModal({ products, data, rate, onClose, onSave }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════
+   JAMG'ARMA (omonat hisobi)
+   Kassadagi naqd pulning bir qismi oylik limit bilan alohida hisobga yig'iladi.
+   - O'tkazma kassadagi naqd SO'M balansidan AYRILADI (pul jismonan chiqib ketadi),
+     lekin foyda/xarajat hisobotlariga KIRMAYDI (u xarajat emas).
+   - Qoldiq kassa yozuvlaridan hisoblanadi (lib/savings.js) — alohida saqlanmaydi.
+═══════════════════════════════════════════════════ */
+const MONTH_NAMES_UZ = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"];
+function monthLabelUz(mk) {
+  const [y, m] = String(mk || "").split("-").map(Number);
+  return m ? `${MONTH_NAMES_UZ[m - 1]} ${y}` : mk;
+}
+function nextMonthKeyOf(mk) {
+  const [y, m] = mk.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+}
+
+// Kassadagi naqd SO'M balansi — Kassa bo'limidagi "Kassadagi SO'M" bilan bir xil formula
+function kassaSomBalance(data) {
+  const cash = (data.cashflow || []).filter((c) =>
+    c.paymentType !== "Karta (Click/Payme)" && c.paymentType !== "Nasiya (qarzga)" && c.currency !== "USD");
+  const inc = cash.filter((c) => c.type === "kirim").reduce((s, c) => s + num(c.amountSum), 0);
+  const exp = cash.filter((c) => c.type === "chiqim").reduce((s, c) => s + num(c.amountSum), 0);
+  const ex = (data.currencyExchanges || []).reduce((s, e) => s + (e.direction === "usd_to_sum" ? num(e.sumAmount) : -num(e.sumAmount)), 0);
+  return inc - exp + ex;
+}
+
+function makeSavingsEntry(kind, amountSum, note, rate) {
+  const out = kind === "out"; // out: kassadan jamg'armaga | in: jamg'armadan kassaga
+  return {
+    id: uid(), time: nowTime(), date: todayISO(), type: out ? "chiqim" : "kirim",
+    category: out ? SAVINGS_OUT_CAT : SAVINGS_IN_CAT, currency: "SUM",
+    amount: amountSum, amountSum, amountUsd: amountSum / rate, paymentType: "Naqd pul",
+    note: note || (out ? "Kassadan jamg'armaga" : "Jamg'armadan kassaga"),
+  };
+}
+
+function SavingsBar({ percent, reached }) {
+  return (
+    <div style={{ height: 12, borderRadius: 8, background: T.s3, overflow: "hidden" }}>
+      <div style={{ width: `${percent}%`, height: "100%", background: reached ? T.teal : T.gold, transition: "width .3s" }} />
+    </div>
+  );
+}
+
+function SavingsDepositModal({ data, kassaBalance, onClose, onSave }) {
+  const sv = savingsSummary(data, todayISO().slice(0, 7), todayISO());
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const amt = Math.round(num(amount));
+  const overCash = amt > kassaBalance + 0.5;
+  const overLimit = sv.target > 0 && amt > sv.remaining + 0.5;
+  const row = (l, v, c) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 7, background: T.s3 }}>
+      <span style={{ fontSize: 12.5, color: T.muted }}>{l}</span>
+      <span className="mo" style={{ fontSize: 13, fontWeight: 700, color: c || T.text }}>{v}</span>
+    </div>
+  );
+  return (
+    <Modal title="Jamg'armaga o'tkazish" onClose={onClose}>
+      <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+        {row("Kassadagi naqd (so'm)", fmtSum(kassaBalance), T.flame)}
+        {row("Jamg'arma qoldig'i", fmtSum(sv.balance), T.gold)}
+        {sv.target > 0
+          ? row(`${monthLabelUz(todayISO().slice(0, 7))} limiti`, `${fmtSum(sv.monthNet)} / ${fmtSum(sv.target)}`, sv.reached ? T.teal : T.text)
+          : row("Oylik limit", "belgilanmagan", T.muted)}
+      </div>
+      <F label="Summa (so'm)">
+        <input type="number" style={iSt} value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      </F>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0 12px" }}>
+        {sv.target > 0 && sv.remaining > 0 && (
+          <Btn size="sm" variant="gold" onClick={() => setAmount(String(Math.round(Math.min(sv.remaining, Math.max(0, kassaBalance)))))}>
+            Qolgan limit: {fmtSum(sv.remaining)}
+          </Btn>
+        )}
+        {[500000, 1000000, 2000000].map((v) => (
+          <Btn key={v} size="sm" variant="ghost" onClick={() => setAmount(String(num(amount) + v))}>+{fmtSum(v).replace(" so'm", "")}</Btn>
+        ))}
+      </div>
+      <F label="Izoh (ixtiyoriy)">
+        <input style={iSt} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Masalan: kunlik tushumdan" />
+      </F>
+      {overCash && (
+        <p style={{ fontSize: 12, color: T.red, marginTop: 10 }}>
+          Kassada buncha naqd pul yo'q — mavjud: {fmtSum(kassaBalance)}.
+        </p>
+      )}
+      {!overCash && overLimit && (
+        <p style={{ fontSize: 12, color: T.gold, marginTop: 10 }}>
+          Bu summa oylik limitdan oshadi (qolgan limit: {fmtSum(sv.remaining)}). Saqlash mumkin.
+        </p>
+      )}
+      <p style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>
+        Pul kassadagi naqd balansdan ayriladi va jamg'armaga yoziladi. Bu xarajat emas — foyda hisobotiga ta'sir qilmaydi.
+      </p>
+      <SaveBtn disabled={amt <= 0 || overCash} color={T.gold} onClick={() => onSave(amt, note.trim())}>
+        Jamg'armaga o'tkazish
+      </SaveBtn>
+    </Modal>
+  );
+}
+
+function SavingsLimitModal({ data, onClose, onSave }) {
+  const mk = todayISO().slice(0, 7);
+  const nk = nextMonthKeyOf(mk);
+  const [thisM, setThisM] = useState(String(targetForMonth(data, mk) || 6000000));
+  const [nextM, setNextM] = useState(String((data.savings && data.savings.monthlyTargets && data.savings.monthlyTargets[nk]) ?? ""));
+  const chips = (setter) => (
+    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+      {[6000000, 10000000].map((v) => (
+        <Btn key={v} size="sm" variant="ghost" onClick={() => setter(String(v))}>{fmtSum(v)}</Btn>
+      ))}
+    </div>
+  );
+  return (
+    <Modal title="Oylik jamg'arma limiti" onClose={onClose}>
+      <F label={`${monthLabelUz(mk)} — limit (so'm)`}>
+        <input type="number" style={iSt} value={thisM} onChange={(e) => setThisM(e.target.value)} autoFocus />
+        {chips(setThisM)}
+      </F>
+      <div style={{ marginTop: 14 }}>
+        <F label={`${monthLabelUz(nk)} — limit (ixtiyoriy)`}>
+          <input type="number" style={iSt} value={nextM} onChange={(e) => setNextM(e.target.value)} placeholder="Masalan: 10 000 000" />
+          {chips(setNextM)}
+        </F>
+      </div>
+      <p style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>
+        Limit — shu oy jamg'armaga yig'ilishi kerak bo'lgan summa. Yangi oyga limit qo'yilmasa, oldingi oy limiti davom etadi.
+      </p>
+      <SaveBtn disabled={num(thisM) <= 0}
+        onClick={() => onSave({ [mk]: Math.round(num(thisM)), ...(String(nextM).trim() !== "" ? { [nk]: Math.round(num(nextM)) } : {}) })}>
+        Limitni saqlash
+      </SaveBtn>
+    </Modal>
+  );
+}
+
+function SavingsReturnModal({ balance, onClose, onSave }) {
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const amt = Math.round(num(amount));
+  const over = amt > balance + 0.5;
+  return (
+    <Modal title="Jamg'armadan kassaga qaytarish" onClose={onClose}>
+      <div style={{ padding: "9px 13px", background: T.goldD, borderRadius: 8, marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 12.5, color: T.muted2 }}>Jamg'arma qoldig'i</span>
+        <b className="mo" style={{ color: T.gold }}>{fmtSum(balance)}</b>
+      </div>
+      <F label="Summa (so'm)"><input type="number" style={iSt} value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></F>
+      <div style={{ marginTop: 12 }}>
+        <F label="Sababi (majburiy)"><input style={iSt} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nima uchun qaytarilmoqda" /></F>
+      </div>
+      {over && <p style={{ fontSize: 12, color: T.red, marginTop: 10 }}>Jamg'armada buncha pul yo'q.</p>}
+      <SaveBtn disabled={amt <= 0 || over || !note.trim()} color={T.red} onClick={() => onSave(amt, note.trim())}>
+        Kassaga qaytarish
+      </SaveBtn>
+    </Modal>
+  );
+}
+
+// Qarzdorlar ro'yxatida "jamg'arma" sifatida yuritilgan pulni jamg'arma hisobiga ko'chirish.
+// Kassaga TEGMAYDI (pul kassadan allaqachon chiqib ketgan) — faqat qarzdor yozuvi yopiladi.
+function SavingsFromDebtModal({ debts, onClose, onSave }) {
+  const [id, setId] = useState(debts[0]?.id || "");
+  const sel = debts.find((d) => d.id === id);
+  const remaining = sel ? Math.round(num(sel.amountSum) - num(sel.paidAmount || 0)) : 0;
+  const [amount, setAmount] = useState(String(remaining));
+  useEffect(() => { setAmount(String(remaining)); }, [id]);
+  const amt = Math.round(num(amount));
+  const over = amt > remaining + 0.5;
+  return (
+    <Modal title="Qarzdorlardan jamg'armaga ko'chirish" onClose={onClose}>
+      {debts.length === 0 ? (
+        <p style={{ fontSize: 13, color: T.muted }}>Ochiq shaxsiy qarzdorlik yo'q.</p>
+      ) : (
+        <>
+          <F label="Shaxsiy qarzdor (jamg'arma yuritilgan yozuv)">
+            <Sel value={id} onChange={(e) => setId(e.target.value)}
+              options={debts.map((d) => ({ value: d.id, label: `${d.name} — ${fmtSum(num(d.amountSum) - num(d.paidAmount || 0))}` }))} />
+          </F>
+          <div style={{ marginTop: 12 }}>
+            <F label="Ko'chiriladigan summa (so'm)">
+              <input type="number" style={iSt} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </F>
+          </div>
+          {over && <p style={{ fontSize: 12, color: T.red, marginTop: 8 }}>Summa qarz qoldig'idan katta ({fmtSum(remaining)}).</p>}
+          <p style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>
+            Qarzdor yozuvidan shu summa yopiladi, jamg'arma qoldig'iga qo'shiladi. Kassa balansi o'zgarmaydi.
+            Ko'chirilgan summa BU OY jamg'armasiga hisoblanadi.
+          </p>
+          <SaveBtn disabled={amt <= 0 || over || !sel} color={T.gold} onClick={() => onSave(id, amt)}>Ko'chirish</SaveBtn>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function SavingsTab({ data, patch, rate, role }) {
+  const runLocked = useActionLock();
+  const canDeposit = role === "azim" || role === "kassir";
+  const canManage = role === "azim";
+  const mk = todayISO().slice(0, 7);
+  const sv = savingsSummary(data, mk, todayISO());
+  const kassa = kassaSomBalance(data);
+  const history = savingsHistoryByMonth(data);
+  const [depOpen, setDepOpen] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+
+  const personalOpen = (data.personalDebts || []).filter((p) => !p.paid && num(p.amountSum) - num(p.paidAmount || 0) > 0.5);
+
+  const moves = [
+    ...(data.cashflow || []).filter(isSavingsEntry).map((c) => ({
+      id: c.id, date: c.date, time: c.time || "", kind: c.type === "chiqim" ? "add" : "back", amountSum: c.amountSum, note: c.note,
+    })),
+    ...((data.savings && data.savings.adjustments) || []).map((a) => ({
+      id: a.id, date: a.date, time: a.time || "", kind: "move", amountSum: a.amountSum, note: a.note,
+    })),
+  ].sort((a, b) => ((b.date || "") + (b.time || "")).localeCompare((a.date || "") + (a.time || "")));
+
+  function deposit(amountSum, note) {
+    runLocked(() => patch((d) => { d.cashflow.unshift(makeSavingsEntry("out", amountSum, note, rate)); return d; }));
+  }
+  function giveBack(amountSum, note) {
+    runLocked(() => patch((d) => { d.cashflow.unshift(makeSavingsEntry("in", amountSum, note, rate)); return d; }));
+  }
+  function saveTargets(map) {
+    runLocked(() => patch((d) => {
+      d.savings = d.savings || { monthlyTargets: {}, adjustments: [] };
+      d.savings.monthlyTargets = { ...(d.savings.monthlyTargets || {}), ...map };
+      return d;
+    }));
+  }
+  async function moveFromDebt(debtId, amountSum) {
+    const p = personalOpen.find((x) => x.id === debtId);
+    if (!p) return;
+    const ok = await askConfirm(`"${p.name}" qarzdorlik yozuvidan ${fmtSum(amountSum)} jamg'armaga ko'chirilsinmi?\n\nKassa balansi o'zgarmaydi.`);
+    if (!ok) return;
+    runLocked(() => patch((d) => {
+      const debt = (d.personalDebts || []).find((x) => x.id === debtId);
+      if (!debt) return d;
+      const left = num(debt.amountSum) - num(debt.paidAmount || 0);
+      const pay = Math.min(amountSum, left);
+      if (pay <= 0) return d;
+      debt.paidAmount = num(debt.paidAmount || 0) + pay;
+      if (debt.paidAmount >= num(debt.amountSum) - 0.5) debt.paid = true;
+      debt.history = debt.history || [];
+      debt.history.push({ date: todayISO(), time: nowTime(), amount: pay, note: "Jamg'armaga ko'chirildi" });
+      d.savings = d.savings || { monthlyTargets: {}, adjustments: [] };
+      d.savings.adjustments = d.savings.adjustments || [];
+      d.savings.adjustments.unshift({
+        id: uid(), date: todayISO(), time: nowTime(), amountSum: pay,
+        note: `Qarzdorlar ro'yxatidan ko'chirildi — ${debt.name}`, fromDebtId: debt.id,
+      });
+      return d;
+    }));
+    setMoveOpen(false);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 className="bc" style={{ fontSize: 22, fontWeight: 800 }}>Jamg'arma</h2>
+          <p style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>Kassadagi naqd puldan oylik limit bilan yig'ib boriladigan hisob</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {canDeposit && <Btn variant="gold" onClick={() => setDepOpen(true)}><Plus size={14} /> Kassadan qo'shish</Btn>}
+          {canManage && <Btn variant="ghost" onClick={() => setLimitOpen(true)}><Pencil size={13} /> Limit belgilash</Btn>}
+          {canManage && <Btn variant="ghost" onClick={() => setReturnOpen(true)} disabled={sv.balance <= 0}>Kassaga qaytarish</Btn>}
+          {canManage && personalOpen.length > 0 && <Btn variant="purple" onClick={() => setMoveOpen(true)}><Users size={13} /> Qarzdorlardan ko'chirish</Btn>}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 13, marginBottom: 16 }}>
+        <Stat label="Jamg'arma qoldig'i" value={fmtSum(sv.balance)} sub="barcha oylar bo'yicha" color={T.gold} Icon={Wallet} />
+        <Stat label={`${monthLabelUz(mk)} limiti`} value={sv.target > 0 ? fmtSum(sv.target) : "Belgilanmagan"} sub={sv.target > 0 && !sv.targetExplicit ? "oldingi oydan davom etmoqda" : undefined} color={T.blue} Icon={TrendingUp} />
+        <Stat label="Bu oy jamg'arildi" value={fmtSum(sv.monthNet)} sub={sv.todayAdded > 0 ? `bugun: +${fmtSum(sv.todayAdded)}` : undefined} color={T.teal} Icon={TrendingUp} />
+        <Stat label={sv.reached ? "Limit bajarildi" : "Limitgacha qoldi"} value={sv.reached ? (sv.over > 0 ? `+${fmtSum(sv.over)}` : "✓") : fmtSum(sv.remaining)} color={sv.reached ? T.teal : T.flame} Icon={Clock} />
+      </div>
+
+      {sv.target > 0 ? (
+        <Card title={`${monthLabelUz(mk)} — limit bajarilishi: ${sv.percent}%`}>
+          <SavingsBar percent={sv.percent} reached={sv.reached} />
+          <p style={{ fontSize: 11.5, color: T.muted, marginTop: 8 }}>
+            {fmtSum(sv.monthNet)} / {fmtSum(sv.target)} · Kassadagi naqd: {fmtSum(kassa)}
+          </p>
+        </Card>
+      ) : (
+        <div style={{ background: T.goldD, border: `1px solid ${T.gold}40`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: T.gold, fontWeight: 600 }}>
+          Bu oy uchun limit belgilanmagan.{canManage ? " «Limit belgilash» tugmasi orqali qo'ying." : " Limitni Azim Avazovich belgilaydi."}
+        </div>
+      )}
+
+      <div style={{ marginTop: 16 }}>
+        <Card title="Oylar bo'yicha" pad={false}>
+          <Tbl dense empty="Hali yozuv yo'q"
+            cols={[
+              { k: "month", h: "Oy", r: (r) => <span style={{ fontWeight: 600 }}>{monthLabelUz(r.month)}</span> },
+              { k: "target", h: "Limit", r: (r) => <span className="mo">{r.target > 0 ? fmtSum(r.target) : "—"}</span> },
+              { k: "monthNet", h: "Jamg'arildi", r: (r) => <span className="mo" style={{ color: T.teal, fontWeight: 700 }}>{fmtSum(r.monthNet)}</span> },
+              { k: "state", h: "Holat", r: (r) => r.target <= 0 ? <span style={{ color: T.muted }}>—</span>
+                : r.reached ? <Badge color={T.teal}>Bajarildi</Badge>
+                : <Badge color={T.gold}>{r.percent}% · {fmtSum(r.remaining)} qoldi</Badge> },
+            ]}
+            rows={history} />
+        </Card>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Card title={`Harakatlar (${moves.length})`} pad={false}>
+          <Tbl dense empty="Jamg'armaga hali pul o'tkazilmagan"
+            cols={[
+              { k: "date", h: "Sana", r: (r) => <span>{fmtDate(r.date)} <span style={{ color: T.muted }}>{r.time}</span></span> },
+              { k: "kind", h: "Turi", r: (r) => r.kind === "add" ? <Badge color={T.gold}>Kassadan qo'shildi</Badge>
+                : r.kind === "back" ? <Badge color={T.red}>Kassaga qaytarildi</Badge>
+                : <Badge color={T.purple}>Qarzdorlardan ko'chirildi</Badge> },
+              { k: "amountSum", h: "Summa", r: (r) => <span className="mo" style={{ fontWeight: 700, color: r.kind === "back" ? T.red : T.teal }}>{r.kind === "back" ? "−" : "+"}{fmtSum(r.amountSum)}</span> },
+              { k: "note", h: "Izoh", r: (r) => <span style={{ fontSize: 12, color: T.muted }}>{r.note || "—"}</span> },
+            ]}
+            rows={moves} />
+        </Card>
+      </div>
+
+      {depOpen && (
+        <SavingsDepositModal data={data} kassaBalance={kassa} onClose={() => setDepOpen(false)}
+          onSave={(amt, note) => { deposit(amt, note); setDepOpen(false); }} />
+      )}
+      {limitOpen && (
+        <SavingsLimitModal data={data} onClose={() => setLimitOpen(false)}
+          onSave={(map) => { saveTargets(map); setLimitOpen(false); }} />
+      )}
+      {returnOpen && (
+        <SavingsReturnModal balance={sv.balance} onClose={() => setReturnOpen(false)}
+          onSave={(amt, note) => { giveBack(amt, note); setReturnOpen(false); }} />
+      )}
+      {moveOpen && (
+        <SavingsFromDebtModal debts={personalOpen} onClose={() => setMoveOpen(false)} onSave={moveFromDebt} />
+      )}
+    </div>
+  );
+}
+
 /* ─── CASHIER TAB — qarz turi + muddat eslatma + Click alohida ─── */
 const DEBT_TX_TYPES = ["Ta'minotchi to'lovi", "Mahsulot uchun", "Xizmat uchun", "Avans", "Boshqa"];
 
@@ -7690,6 +8074,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
   const [editEntry, setEditEntry] = useState(null);
   const [exchangeOpen, setExchangeOpen] = useState(false);
   const [cfSearch, setCfSearch] = useState("");
+  const [savingsOpen, setSavingsOpen] = useState(false);
 
   const exchanges = data.currencyExchanges || [];
   // Ayirboshlash — umumiy tushum/foydaga (Analitika) qo'shilmaydi, faqat kassadagi
@@ -7718,6 +8103,8 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
 
   const debts = supplierDebts(data);
   const totalDebt = debts.reduce((s, d) => s + Math.max(0, d.debtSum), 0);
+  const kassaSom = incomeSUM - expenseSUM + exchangeSumNet;
+  const svSummary = savingsSummary(data, todayISO().slice(0, 7), todayISO());
 
   // Oxirgi 7 kunlik sof kassa harakati (naqd, SO'M) — "Kassadagi SO'M" mini-grafigi uchun.
   const last7NetKassa = Array.from({ length: 7 }, (_, i) => {
@@ -7786,6 +8173,26 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
       });
       return d;
     }));
+  }
+
+  // Bir bosishda: ta'minotchi qarzini Click balansidan yopish (balans yetmasa — balans qadar qisman).
+  async function payDebtFromClick(r) {
+    const debt = Math.max(0, Math.round(num(r.debtSum)));
+    const avail = Math.max(0, Math.floor(clickTotal));
+    const amount = Math.min(debt, avail);
+    if (amount <= 0) return;
+    const partial = amount < debt;
+    const ok = await askConfirm(
+      `${r.name}\n\nClick orqali to'lanadi: ${fmtSum(amount)}\n` +
+      `Qarz: ${fmtSum(debt)} → ${fmtSum(debt - amount)} qoladi${partial ? "\n(Click balansi yetmagani uchun qisman to'lov)" : ""}\n` +
+      `Click balansi: ${fmtSum(clickTotal)} → ${fmtSum(clickTotal - amount)}`
+    );
+    if (!ok) return;
+    payDebt(r.name, amount, { currency: "SUM", paymentType: "Karta (Click/Payme)", amountOriginal: amount });
+  }
+
+  function addSavingsDeposit(amountSum, note) {
+    runLocked(() => patch((d) => { d.cashflow.unshift(makeSavingsEntry("out", amountSum, note, rate)); return d; }));
   }
 
   function receiveNasiyaPayment(nasiyaId, amountSum) {
@@ -7877,6 +8284,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
           {!readOnly && <Btn variant="teal" onClick={() => { setCashPreset({ type: "kirim", category: "Qarzdan kirim" }); setOpen(true); }}><Wallet size={14} /> Qarzdan kirim</Btn>}
           {!readOnly && <Btn variant="red" onClick={() => { setCashPreset({ type: "chiqim", category: "Ta'minotchiga to'lov" }); setOpen(true); }}><AlertTriangle size={14} /> Ta'minotchiga to'lov</Btn>}
           {!readOnly && <Btn variant="gold" onClick={() => setGivePersonalOpen(true)}><Users size={14} /> Shaxsiy qarz berish</Btn>}
+          {!readOnly && <Btn variant="gold" onClick={() => setSavingsOpen(true)}><Wallet size={14} /> Jamg'armaga o'tkazish</Btn>}
           {!readOnly && <Btn variant="gold" onClick={() => setExchangeOpen(true)}><RefreshCw size={14} /> Ayirboshlash</Btn>}
           {!readOnly && <Btn onClick={() => { setCashPreset(null); setOpen(true); }}><Plus size={15} /> Yozuv qo'shish</Btn>}
         </div>
@@ -7895,6 +8303,9 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
         <Stat label="Click/Payme savdosi" value={fmtSum(clickTotal)} sub={`Kirim: ${fmtSum(clickIncome)} · Chiqim: ${fmtSum(clickExpense)} · balansdan tashqari`} color={T.purple} Icon={TrendingUp} />
         <Stat label="Nasiya qarz (qolgan)" value={fmtSum(nasiyaTotal)} sub={`${unpaidNasiya.length} ta to'lanmagan · balansdan tashqari`} color={T.gold} Icon={Clock} />
         <Stat label="Ta'minotchi qarzi" value={fmtSum(totalDebt)} color={T.red} Icon={AlertTriangle} />
+        <Stat label="Jamg'arma" value={fmtSum(svSummary.balance)}
+          sub={svSummary.target > 0 ? `Bu oy: ${fmtSum(svSummary.monthNet)} / ${fmtSum(svSummary.target)} (${svSummary.percent}%)` : "Oylik limit belgilanmagan"}
+          color={T.gold} Icon={Wallet} />
       </div>
 
       {exchanges.length > 0 && (
@@ -7957,7 +8368,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
               { k: "amount", h: "Summa", r: (r) => <span className="mo" style={{ fontWeight: 700, color: r.type === "kirim" ? T.teal : T.red }}>{r.type === "kirim" ? "+" : "-"}{r.currency === "USD" ? fmtUsd(r.amount) : fmtSum(r.amountSum)}</span> },
               { k: "note", h: "Izoh", r: (r) => <span style={{ color: T.muted, fontSize: 12 }}>{r.note || "—"}</span> },
               ...(!readOnly ? [
-                { k: "edit", h: "", r: (r) => <button onClick={() => setEditEntry(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
+                { k: "edit", h: "", r: (r) => isSavingsEntry(r) ? null : <button onClick={() => setEditEntry(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}><Pencil size={13} /></button> },
                 { k: "del", h: "", r: (r) => (
                   <button
                     onClick={async () => {
@@ -7969,6 +8380,8 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                       const isUstaClose = r.category === "Usta xizmat haqi" && (r.ustaLedgerIds?.length || r.ustaCloseId);
                       const msg = r.debtSettleKind
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${settleId || ""}") ham shu summaga qaytariladi.`
+                        : isSavingsEntry(r)
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — jamg'arma yozuvi. O'chirilganda pul kassaga ${r.type === "chiqim" ? "qaytadi" : "qaytmaydi (qayta ayriladi)"} va jamg'arma qoldig'i ham shunga qarab o'zgaradi.`
                         : isUstaClose
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — usta hisobini yopish yozuvi. O'chirilganda ustaning (va shogirt bo'lgan bo'lsa, uning ham) hisobi qaytadan "to'lanmagan" holatga qaytadi.`
                         : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
@@ -8004,6 +8417,11 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                     <Btn size="sm" variant="ghost" onClick={() => setHistorySupplier(r)}>
                       <Clock size={11} /> Tarix
                     </Btn>
+                    {!readOnly && r.debtSum > 0.5 && (
+                      <Btn size="sm" variant="purple" disabled={clickTotal <= 0}
+                        title={clickTotal > 0 ? `Click balansi: ${fmtSum(clickTotal)}` : "Click balansida mablag' yo'q"}
+                        onClick={() => payDebtFromClick(r)}>Click'dan yopish</Btn>
+                    )}
                     {!readOnly && <Btn size="sm" variant="teal" onClick={() => setPayStockIn(r)}>To'lov</Btn>}
                   </div>
                 ) },
@@ -8071,7 +8489,7 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
       )}
       {payStockIn && (
         <Modal title={`To'lov — ${payStockIn.name}`} onClose={() => setPayStockIn(null)}>
-          <PaySupplierForm supplier={payStockIn} rate={rate}
+          <PaySupplierForm supplier={payStockIn} rate={rate} clickBalance={clickTotal}
             onSave={(amountSum, meta) => { payDebt(payStockIn.name, amountSum, meta); setPayStockIn(null); }} />
         </Modal>
       )}
@@ -8101,6 +8519,10 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
           }} />
       )}
       {reportOpen && <DailyReport data={data} onClose={() => setReportOpen(false)} />}
+      {savingsOpen && (
+        <SavingsDepositModal data={data} kassaBalance={kassaSom} onClose={() => setSavingsOpen(false)}
+          onSave={(amt, note) => { addSavingsDeposit(amt, note); setSavingsOpen(false); }} />
+      )}
       {exchangeOpen && (
         <ExchangeModal rate={rate} onClose={() => setExchangeOpen(false)}
           onSave={(item) => { addExchange(item); setExchangeOpen(false); }} />
@@ -8578,11 +9000,19 @@ function SupplierHistoryModal({ supplier, data, patch, onClose }) {
   );
 }
 
-function PaySupplierForm({ supplier, rate, onSave }) {
+function PaySupplierForm({ supplier, rate, onSave, clickBalance = 0, defaultPaymentType = "Naqd pul" }) {
   const [currency, setCurrency] = useState("SUM");
-  const [paymentType, setPaymentType] = useState("Naqd pul");
+  const [paymentType, setPaymentType] = useState(defaultPaymentType);
   const [amt, setAmt] = useState(String(Math.round(supplier.debtSum)));
-  const amountSum = toSum(amt, currency, rate);
+  const debt = Math.max(0, num(supplier.debtSum));
+  const rawSum = toSum(amt, currency, rate);
+  // Qarzdan ortiq summa kassaga to'liq yozilib, qarz esa faqat qoldig'igacha kamayardi
+  // (farq "yo'qolardi") — shuning uchun qoldiq qarz bilan cheklaymiz (Kassa yozuvi bilan bir xil qoida).
+  const overDebt = rawSum > debt + 0.5;
+  const amountSum = overDebt ? debt : rawSum;
+  const amountOriginal = overDebt ? (currency === "USD" ? debt / rate : debt) : num(amt);
+  const isClick = paymentType === "Karta (Click/Payme)";
+  const overClick = isClick && amountSum > clickBalance + 0.5;
 
   return (
     <div>
@@ -8599,7 +9029,29 @@ function PaySupplierForm({ supplier, rate, onSave }) {
         <F label={`Summa (${currency})`}>
           <input type="number" style={iSt} value={amt} onChange={(e) => setAmt(e.target.value)} autoFocus />
         </F>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          <Btn size="sm" variant="ghost" onClick={() => { setCurrency("SUM"); setAmt(String(Math.round(debt))); }}>To'liq qarz</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => { setCurrency("SUM"); setAmt(String(Math.round(debt / 2))); }}>Yarmi</Btn>
+          {isClick && clickBalance > 0 && (
+            <Btn size="sm" variant="purple" onClick={() => { setCurrency("SUM"); setAmt(String(Math.floor(Math.min(debt, clickBalance)))); }}>
+              Click balansicha
+            </Btn>
+          )}
+        </div>
       </div>
+
+      {isClick && (
+        <div style={{ marginTop: 10, padding: "9px 13px", background: T.purpleD, border: `1px solid ${T.purple}30`, borderRadius: 7, fontSize: 12 }}>
+          <span style={{ color: T.muted2 }}>Click balansi: <b className="mo" style={{ color: T.purple }}>{fmtSum(clickBalance)}</b></span>
+          {overClick && <span style={{ color: T.red, marginLeft: 8 }}>— to'lov summasi balansdan katta!</span>}
+        </div>
+      )}
+
+      {overDebt && (
+        <p style={{ fontSize: 11.5, color: T.red, marginTop: 10 }}>
+          Summa qarzdan katta — saqlashda qarz qoldig'igacha cheklanadi ({fmtSum(debt)}).
+        </p>
+      )}
 
       {currency === "USD" && (
         <div style={{ marginTop: 10, padding: "9px 13px", background: T.s3, borderRadius: 7, display: "flex", justifyContent: "space-between" }}>
@@ -8608,7 +9060,7 @@ function PaySupplierForm({ supplier, rate, onSave }) {
         </div>
       )}
 
-      <SaveBtn disabled={!amt} onClick={() => onSave(amountSum, { currency, paymentType, amountOriginal: num(amt) })}>
+      <SaveBtn disabled={!amt || amountSum <= 0} onClick={() => onSave(amountSum, { currency, paymentType, amountOriginal })}>
         To'lovni saqlash
       </SaveBtn>
     </div>
@@ -8653,6 +9105,8 @@ function NewCashflowModal({ data, debts, rate, onClose, onSave, initialType = "k
   }, [category]);
 
   const amountSum = toSum(amount, currency, rate);
+  const clickBal = (data.cashflow || []).filter((c) => c.paymentType === "Karta (Click/Payme)")
+    .reduce((s, c) => s + (c.type === "kirim" ? num(c.amountSum) : -num(c.amountSum)), 0);
   const isSupplierPay = type === "chiqim" && category === "Ta'minotchiga to'lov";
   const isDebtCollect = type === "kirim" && (category === "Qarzdan kirim" || category === "Hamkordan to'lov");
   const isDebtRelated = isSupplierPay || category === "Rahbarga chiqim" || category === "Rahbardan kirim" || isDebtCollect;
@@ -8806,6 +9260,9 @@ function NewCashflowModal({ data, debts, rate, onClose, onSave, initialType = "k
       {paymentType === "Karta (Click/Payme)" && (
         <p style={{ fontSize: 11.5, color: T.purple, marginTop: 10 }}>
           ℹ Bu yozuv kassa balansiga kirmaydi — faqat Click/Payme savdosi sifatida hisoblanadi.
+          {type === "chiqim" && (
+            <> Click balansi: <b>{fmtSum(clickBal)}</b>{amountSum > clickBal + 0.5 ? " — summa balansdan katta!" : ""}</>
+          )}
         </p>
       )}
 
@@ -8828,6 +9285,7 @@ function DailyReport({ data, onClose }) {
   const clickInc = todayCF.filter((c) => c.paymentType === "Karta (Click/Payme)" && c.type === "kirim").reduce((s, c) => s + num(c.amountSum), 0);
   const clickExp = todayCF.filter((c) => c.paymentType === "Karta (Click/Payme)" && c.type === "chiqim").reduce((s, c) => s + num(c.amountSum), 0);
   const kunBalansi = income - expense;
+  const svRep = savingsSummary(data, todayISO().slice(0, 7), todayISO());
 
   return (
     <Modal title={`Kun hisoboti — ${fmtDate(todayISO())}`} onClose={onClose} wide>
@@ -8882,6 +9340,19 @@ function DailyReport({ data, onClose }) {
           <span style={{ color: T.muted2 }}>Chiqim: <b style={{ color: T.red }}>{fmtSum(clickExp)}</b></span>
         </div>
       </div>
+
+      {(svRep.balance > 0 || svRep.target > 0) && (
+        <div style={{ marginTop: 12, padding: "12px 14px", background: T.goldD, border: `1px solid ${T.gold}30`, borderRadius: 9 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.gold, marginBottom: 8 }}>
+            Jamg'arma
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, flexWrap: "wrap", gap: 6 }}>
+            <span style={{ color: T.muted2 }}>Bugun o'tkazildi: <b style={{ color: T.gold }}>{fmtSum(svRep.todayAdded)}</b></span>
+            <span style={{ color: T.muted2 }}>Qoldiq: <b style={{ color: T.gold }}>{fmtSum(svRep.balance)}</b></span>
+            {svRep.target > 0 && <span style={{ color: T.muted2 }}>Bu oy: <b>{fmtSum(svRep.monthNet)}</b> / {fmtSum(svRep.target)} ({svRep.percent}%)</span>}
+          </div>
+        </div>
+      )}
 
       <p style={{ fontSize: 11, color: T.muted, textAlign: "center", marginTop: 14 }}>Skrinshot qilib rahbarga yuboring</p>
     </Modal>
@@ -10809,8 +11280,8 @@ function RahbarPanelTab({ data, patch, rate }) {
   };
 
   const isCash = (c) => c.paymentType !== "Karta (Click/Payme)" && c.paymentType !== "Nasiya (qarzga)";
-  const income = cf.filter((c) => c.type === "kirim" && isCash(c) && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
-  const expense = cf.filter((c) => c.type === "chiqim" && isCash(c) && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
+  const income = cf.filter((c) => c.type === "kirim" && isCash(c) && !isSavingsEntry(c) && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
+  const expense = cf.filter((c) => c.type === "chiqim" && isCash(c) && !isSavingsEntry(c) && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
   const rahbarExpense = cf.filter((c) => c.category === "Rahbarga chiqim" && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
   const logistikaExpense = cf.filter((c) => c.category === "Logistika" && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
   const pitaniyaExpense = cf.filter((c) => c.category === "Pitaniya" && inPeriod(c.date)).reduce((s, c) => s + num(c.amountSum), 0);
@@ -11239,7 +11710,7 @@ function AnalyticsTab({ data, patch, rate, readOnly = false }) {
 
   // Waterfall — joriy oy
   const mk = (new Date()).toISOString().slice(0, 7);
-  const monthCF = (data.cashflow || []).filter((c) => (c.date || "").startsWith(mk));
+  const monthCF = (data.cashflow || []).filter((c) => (c.date || "").startsWith(mk) && !isSavingsEntry(c));
   const mInc = monthCF.filter((c) => c.type === "kirim" && c.paymentType !== "Karta (Click/Payme)" && c.paymentType !== "Nasiya (qarzga)").reduce((s, c) => s + num(c.amountSum), 0);
   const mSup = monthCF.filter((c) => c.category === "Ta'minotchiga to'lov").reduce((s, c) => s + num(c.amountSum), 0);
   const mUsta = monthCF.filter((c) => c.category === "Usta xizmat haqi").reduce((s, c) => s + num(c.amountSum), 0);
@@ -11517,7 +11988,7 @@ function OwnerMonthlyReport({ data, rate }) {
   });
 
   const cf = data.cashflow || [];
-  const monthCF = cf.filter((c) => (c.date || "").startsWith(monthFilter));
+  const monthCF = cf.filter((c) => (c.date || "").startsWith(monthFilter) && !isSavingsEntry(c));
 
   // MUHIM: kirim CHIQIM bilan bir xil qoidada hisoblanishi kerak — pastdagi chiqim
   // (supplierPay, ustaPay va h.k.) to'lov turidan qat'i nazar TO'LIQ hisoblanadi.
@@ -11744,7 +12215,13 @@ function DailyReportSettings({ data, onUpdate }) {
   const sendTestReport = async () => {
     setLoading(true); setTestStatus("Yuborilmoqda...");
     try {
-      const res = await fetch("/api/daily-report", { method: "POST", headers: { "Content-Type": "application/json", "authorization": "Bearer " + (process.env.NEXT_PUBLIC_CRON_SECRET || "") } });
+      // MUHIM: CRON_SECRET brauzerga chiqarilmaydi (NEXT_PUBLIC_ kalit hammaga ko'rinib qolardi).
+      // Test — kirgan Azim/Rahbar sessiyasi bilan tasdiqlanadi.
+      const authHeader = await authClient.getAuthHeader();
+      const res = await fetch(`/api/daily-report?branchId=${encodeURIComponent(authClient.branchId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
+      });
       const result = await res.json();
       if (res.ok) {
         if (method === "whatsapp" && result.sentWhatsApp) setTestStatus("OK - WhatsApp yuborildi!");
@@ -11760,9 +12237,9 @@ function DailyReportSettings({ data, onUpdate }) {
                     chatId !== (settings.dailyReportChat || "");
 
   return (
-    <Card title="Kunlik Sklad Hisoboti" pad={true}>
+    <Card title="Kunlik avtomatik hisobot" pad={true}>
       <p style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>
-        Har kuni 00:30 da sklad kirim/chiqim hisobotini avtomatik yuboradi.
+        Har kuni 00:30 da moliyaviy hisobot (kirim/chiqim, kassa qoldig'i, jamg'arma holati) va sklad hisobotini avtomatik yuboradi.
       </p>
       <F label="Yuborish usuli">
         <div style={{ display: "flex", gap: 16 }}>

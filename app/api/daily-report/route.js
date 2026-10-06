@@ -3,6 +3,13 @@
 // Cron job orqali har kuni 00:30 da ishlaydi
 
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
+import { SAVINGS_OUT_CAT, SAVINGS_IN_CAT, savingsSummary } from "../../../lib/savings";
+import { resolveAuth } from "../../../lib/authRequest";
+
+// Hisobot Vercel Cron (GET) yoki GitHub Actions / tashqi scheduler (POST) orqali ishga tushadi —
+// har doim yangi ma'lumot o'qilishi uchun keshlanmaydi.
+export const dynamic = "force-dynamic";
 
 // MUHIM: Supabase client endi LAZY (funksiya ichida) yaratiladi.
 // Bu build vaqtida (Next.js "Collecting page data" bosqichida) xato
@@ -29,6 +36,7 @@ const formatSum = (n) => {
   return new Intl.NumberFormat("uz-UZ", {
     style: "currency",
     currency: "UZS",
+    maximumFractionDigits: 0,
   })
     .format(n)
     .replace("UZS", "so'm");
@@ -46,8 +54,21 @@ const generateFinancialReport = (data) => {
 
   const todayFlow = allFlow.filter((c) => c.date === today);
   const todayCashFlow = todayFlow.filter(isCash);
-  const kirimlar = todayCashFlow.filter((c) => c.type === "kirim");
-  const chiqimlar = todayCashFlow.filter((c) => c.type === "chiqim");
+  // Jamg'arma o'tkazmalari (kassa <-> jamg'arma) daromad/xarajat EMAS — kirim/chiqim va
+  // sof foydaga kirmaydi, lekin kassadagi naqd qoldiqqa ta'sir qiladi (pul jismonan chiqadi).
+  const kirimlar = todayCashFlow.filter((c) => c.type === "kirim" && c.category !== SAVINGS_IN_CAT);
+  const chiqimlar = todayCashFlow.filter((c) => c.type === "chiqim" && c.category !== SAVINGS_OUT_CAT);
+  const savingsOutToday = todayCashFlow
+    .filter((c) => c.type === "chiqim" && c.category === SAVINGS_OUT_CAT)
+    .reduce((s, c) => s + num(c.amountSum), 0);
+  const savingsBackToday = todayCashFlow
+    .filter((c) => c.type === "kirim" && c.category === SAVINGS_IN_CAT)
+    .reduce((s, c) => s + num(c.amountSum), 0);
+
+  // Ta'minotchiga Click orqali to'langan summa (naqd kassaga ta'sir qilmaydi)
+  const clickSupplierPaid = todayFlow
+    .filter((c) => c.type === "chiqim" && c.category === "Ta'minotchiga to'lov" && c.paymentType === "Karta (Click/Payme)")
+    .reduce((s, c) => s + num(c.amountSum), 0);
 
   // Naqd bo'lmagan (karta/bank) kirimlar — alohida ko'rsatish uchun
   const nonCashKirim = todayFlow.filter((c) => c.type === "kirim" && !isCash(c))
@@ -99,6 +120,9 @@ const generateFinancialReport = (data) => {
   if (nonCashKirim > 0) {
     report += `\n\ud83d\udcb3 (Naqd emas — karta/bank): ${formatSum(nonCashKirim)}\n`;
   }
+  if (clickSupplierPaid > 0) {
+    report += `\ud83d\udcb3 Click orqali ta'minotchiga to'langan: ${formatSum(clickSupplierPaid)}\n`;
+  }
 
   report += `\n\ud83d\udcc9 CHIQIM (${chiqimlar.length} ta) \u2014 Jami: ${formatSum(jamiChiqim)}\n`;
   if (chiqimByCategory.length > 0) {
@@ -112,12 +136,27 @@ const generateFinancialReport = (data) => {
     report += `\n\ud83d\udc64 Rahbar shaxsan oldi: ${formatSum(rahbarOlgan)} (sof foydadan, xarajat sifatida hisoblanmaydi)\n`;
   }
 
+  // Jamg'arma bo'limi
+  const sv = savingsSummary(data, today.slice(0, 7), today);
+  if (sv.balance > 0 || sv.target > 0 || savingsOutToday > 0 || savingsBackToday > 0) {
+    report += `\n\ud83d\udd12 JAMG'ARMA\n`;
+    report += `\u251c\u2500 Bugun kassadan o'tkazildi: ${formatSum(savingsOutToday)}\n`;
+    if (savingsBackToday > 0) report += `\u251c\u2500 Bugun kassaga qaytarildi: ${formatSum(savingsBackToday)}\n`;
+    report += `\u251c\u2500 Jamg'arma qoldig'i: ${formatSum(sv.balance)}\n`;
+    if (sv.target > 0) {
+      report += `\u2514\u2500 Bu oy: ${formatSum(sv.monthNet)} / ${formatSum(sv.target)} (${sv.percent}%)`;
+      report += sv.reached ? " \u2705 limit bajarildi\n" : ` \u2014 limitgacha ${formatSum(sv.remaining)} qoldi\n`;
+    } else {
+      report += `\u2514\u2500 Oylik limit belgilanmagan\n`;
+    }
+  }
+
   report += `\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n`;
   report += `\ud83d\udcb5 SOF FOYDA (operatsion, Rahbar ulushisiz): ${formatSum(sofFoyda)}\n`;
 
-  const yakuniyQoldiq = boshlangichQoldiq + jamiKirim - jamiChiqim - rahbarOlgan;
+  const yakuniyQoldiq = boshlangichQoldiq + jamiKirim - jamiChiqim - rahbarOlgan - savingsOutToday + savingsBackToday;
   report += `\ud83c\udfe6 Kechqurungi qoldiq: ${formatSum(yakuniyQoldiq)}\n`;
-  report += `\u23f0 ${new Date().toLocaleTimeString("uz-UZ")}\n`;
+  report += `\u23f0 ${new Date().toLocaleTimeString("uz-UZ", { timeZone: "Asia/Tashkent" })}\n`;
 
   return report;
 };
@@ -180,7 +219,7 @@ const generateStockReport = (data) => {
 
   report += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   report += `💰 NET: ${formatSum(insTotal - outsTotal)}\n`;
-  report += `⏰ ${new Date().toLocaleTimeString("uz-UZ")}\n`;
+  report += `⏰ ${new Date().toLocaleTimeString("uz-UZ", { timeZone: "Asia/Tashkent" })}\n`;
 
   return report;
 };
@@ -236,7 +275,7 @@ const sendTelegram = async (chatId, message) => {
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" }),
+      body: JSON.stringify({ chat_id: chatId, text: message }),
     });
 
     if (!response.ok) {
@@ -250,97 +289,115 @@ const sendTelegram = async (chatId, message) => {
   }
 };
 
-export async function POST(request) {
-  try {
-    const authHeader = request.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET;
+// Uzun hisobotni qatorlar bo'yicha bo'laklarga ajratish — Telegram (4096) va
+// WhatsApp/Twilio (1600) belgi chegarasidan oshsa xabar umuman yuborilmay qolardi.
+const chunkText = (text, size) => {
+  const chunks = [];
+  let cur = "";
+  for (const line of String(text).split("\n")) {
+    if ((cur + line + "\n").length > size && cur) { chunks.push(cur.trimEnd()); cur = ""; }
+    cur += line + "\n";
+  }
+  if (cur.trim()) chunks.push(cur.trimEnd());
+  return chunks;
+};
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      // VAQTINCHA DEBUG — muammo topilgach olib tashlanadi
-      return new Response(JSON.stringify({
-        error: "Unauthorized",
-        debug: {
-          receivedHeader: authHeader || "(bo'sh)",
-          receivedHeaderLength: (authHeader || "").length,
-          expectedSecretLength: cronSecret.length,
-          expectedSecretFirst4: cronSecret.slice(0, 4),
-          expectedSecretLast4: cronSecret.slice(-4),
-        }
-      }), { status: 401, headers: { "Content-Type": "application/json" } });
+const sendChunks = async (sendFn, target, text, size) => {
+  let ok = true;
+  for (const part of chunkText(text, size)) {
+    ok = (await sendFn(target, part)) && ok;
+  }
+  return ok;
+};
+
+const STORAGE_KEY = "avtogaz-v2";
+// AvtogazApp.jsx dagi BRANCH_LABELS bilan bir xil — har bir filialning o'z qatori va o'z sozlamalari bor
+const BRANCH_IDS = ["main", "filial2"];
+
+const json = (body, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+const secretMatches = (header, secret) => {
+  if (!secret || !header) return false;
+  const a = Buffer.from(header);
+  const b = Buffer.from(`Bearer ${secret}`);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
+async function buildAndSend(supabase, branchId) {
+  // MUHIM: jadval "app_data", id = filial, haqiqiy ilova state'i "data" ustuni ichida
+  // STORAGE_KEY ("avtogaz-v2") kaliti ostida saqlanadi.
+  const { data: row, error } = await supabase.from("app_data").select("data").eq("id", branchId).single();
+  if (error || !row?.data) return { branchId, generated: false, skipped: "Data not found" };
+
+  const wrapper = row.data[STORAGE_KEY];
+  const appData = wrapper && wrapper.data;
+  if (!appData) return { branchId, generated: false, skipped: "App state not found under STORAGE_KEY" };
+
+  const report = generateFinancialReport(appData) + "\n\n" + generateStockReport(appData);
+
+  const notificationPhone = appData.settings?.dailyReportPhone || "";
+  const notificationChat = appData.settings?.dailyReportChat || "";
+  const notificationMethod = appData.settings?.dailyReportMethod || "";
+
+  const result = { branchId, generated: true, report, sentWhatsApp: false, sentTelegram: false };
+
+  if (notificationMethod === "whatsapp" && notificationPhone) {
+    result.sentWhatsApp = await sendChunks(sendWhatsApp, notificationPhone, report, 1500);
+  }
+  if (notificationMethod === "telegram" && notificationChat) {
+    result.sentTelegram = await sendChunks(sendTelegram, notificationChat, report, 4000);
+  }
+  if (!notificationMethod || (!notificationPhone && !notificationChat)) {
+    console.log(`Kunlik hisobot [${branchId}] (sozlanmagan yuborish):\n` + report);
+  }
+  return result;
+}
+
+// Ruxsat: (1) cron/scheduler — "Authorization: Bearer <CRON_SECRET>" (barcha filiallar), yoki
+// (2) ilovaga kirgan Azim/Rahbar sessiyasi (faqat o'z filiali) — "Test" tugmasi shuni ishlatadi.
+// CRON_SECRET brauzerga HECH QACHON chiqarilmaydi. Hech biri bo'lmasa — rad etiladi.
+async function handle(request) {
+  try {
+    const authHeader = request.headers.get("authorization") || "";
+    let branches;
+
+    if (secretMatches(authHeader, process.env.CRON_SECRET)) {
+      branches = BRANCH_IDS;
+    } else {
+      const { searchParams } = new URL(request.url);
+      const auth = await resolveAuth(request, searchParams.get("branchId"));
+      if (!auth.ok || !["azim", "rahbar"].includes(auth.role)) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+      branches = [auth.branchId];
     }
 
     // Supabase client faqat SHU YERDA, chaqirilganda yaratiladi (build vaqtida emas)
     const supabase = getSupabase();
 
-    // MUHIM: jadval "app_data", id = filial ("main"), haqiqiy ilova state'i
-    // "data" ustuni ichida STORAGE_KEY ("avtogaz-v2") kaliti ostida saqlanadi.
-    const STORAGE_KEY = "avtogaz-v2";
-    const branchId = "main";
-
-    const { data: row, error } = await supabase
-      .from("app_data")
-      .select("data")
-      .eq("id", branchId)
-      .single();
-
-    if (error || !row?.data) {
-      return new Response(JSON.stringify({ error: "Data not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+    const results = [];
+    for (const b of branches) {
+      try {
+        results.push(await buildAndSend(supabase, b));
+      } catch (e) {
+        console.error(`Daily report error [${b}]:`, e);
+        results.push({ branchId: b, generated: false, error: String(e.message || e) });
+      }
     }
 
-    const bag = row.data || {};
-    const wrapper = bag[STORAGE_KEY];
-    const appData = wrapper && wrapper.data;
-
-    if (!appData) {
-      return new Response(JSON.stringify({ error: "App state not found under STORAGE_KEY" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+    const primary = results[0] || {};
+    if (branches.length === 1 && primary.generated === false) {
+      return json({ error: primary.skipped || primary.error || "Hisobot yaratilmadi" }, primary.error ? 500 : 404);
     }
-
-    const stockReport = generateStockReport(appData);
-    const financialReport = generateFinancialReport(appData);
-    const report = financialReport + "\n\n" + stockReport;
-
-    const notificationPhone = appData.settings?.dailyReportPhone || "";
-    const notificationChat = appData.settings?.dailyReportChat || "";
-    const notificationMethod = appData.settings?.dailyReportMethod || "";
-
-    let results = { generated: true, report, sentWhatsApp: false, sentTelegram: false };
-
-    if (notificationMethod === "whatsapp" && notificationPhone) {
-      results.sentWhatsApp = await sendWhatsApp(notificationPhone, report);
-    }
-    if (notificationMethod === "telegram" && notificationChat) {
-      results.sentTelegram = await sendTelegram(notificationChat, report);
-    }
-    if (!notificationMethod || (!notificationPhone && !notificationChat)) {
-      console.log("Kunlik hisobot (sozlanmagan yuborish):\n" + report);
-    }
-
-    return new Response(JSON.stringify(results), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    // Eski javob shakli (generated/report/sentWhatsApp/sentTelegram) saqlanadi + barcha filiallar natijasi
+    return json({ ...primary, branches: results.map(({ report, ...rest }) => rest) });
   } catch (error) {
     console.error("Daily report error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return json({ error: error.message }, 500);
   }
 }
 
-export async function GET(request) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  return new Response("Use POST method", { status: 405 });
-}
+// Vercel Cron faqat GET yuboradi; GitHub Actions/curl POST yuboradi — ikkalasi ham ishlaydi.
+export async function GET(request) { return handle(request); }
+export async function POST(request) { return handle(request); }
