@@ -81,6 +81,7 @@ const emptyData = () => ({
     activeBranchId: "main",
   },
   products: [], stockIns: [], stockOuts: [], serviceUsage: [], freeSales: [], cashflow: [],
+  priceReviews: [], // {id,date,time,productId,productName,supplier,prevUnitCostSum,newUnitCostSum,prevUnitCostOriginal,newUnitCostOriginal,currency,stockInId,status} — narx farqi Azimga tekshiruv uchun yuboriladi
   apprentices: [], // usta -> shogirt (necha foizi shogirtga ajratilishi) ro'yxati
   serviceCards: [], warrantyClaims: [], partners: [], partnerTx: [],
   ustaLedger: [], leads: [], leadTasks: [],
@@ -108,8 +109,8 @@ const emptyData = () => ({
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
-const addDaysISO = (iso, days) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
-const addMonthsISO = (iso, months) => { const d = new Date(iso + "T00:00:00"); d.setMonth(d.getMonth() + months); return d.toISOString().slice(0, 10); };
+const addDaysISO = (iso, days) => { const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10); };
+const addMonthsISO = (iso, months) => { const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1 + months, d)).toISOString().slice(0, 10); };
 const fmtDate = (iso) => { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}.${m}.${y}`; };
 const num = (v) => Number(v) || 0;
 const fmtSum = (n) => Math.round(num(n)).toLocaleString("ru-RU").replace(/,/g, " ") + " so'm";
@@ -770,6 +771,9 @@ function GlobalStyles() {
       .pulse{animation:pulse 1.5s ease infinite}
       select{appearance:none}
       @media(max-width:640px){.hide-sm{display:none!important}}
+      /* Juda tor ekranlarda (eski/kichik telefonlar) sarlavha bitta qatorga sig'maydi —
+         shu enlarda ikkinchi qatorga tushsin, aks holda butun sahifa yon tomonga suriladi. */
+      @media(max-width:374px){.hdr-wrap{flex-wrap:wrap!important;height:auto!important;min-height:54px;row-gap:6px;padding-top:8px!important;padding-bottom:8px!important}}
       /* Tab lentasining scroll chizig'i ko'rinmasin — chetdagi "so'nish" yetarli */
       .tabs-scroll::-webkit-scrollbar{display:none}
       /* Tugmalar: bosilganda yengil "cho'kish" — teginish sezilarli bo'ladi */
@@ -1840,6 +1844,9 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
   const [resetPinOpen, setResetPinOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [pinChangeOpen, setPinChangeOpen] = useState(false);
+  const [editCodeOpen, setEditCodeOpen] = useState(false);
+  // Tasdiqlash kodi xeshini hamma rol uchun yangilab turamiz (SimplePinModal shundan foydalanadi)
+  useEffect(() => { setEditCodeHash(data?.settings?.editCodeHash); }, [data?.settings?.editCodeHash]);
   const [ownerCodesOpen, setOwnerCodesOpen] = useState(false);
   const [ustaCodesOpen, setUstaCodesOpen] = useState(false);
   const [supplierCodesOpen, setSupplierCodesOpen] = useState(false);
@@ -1885,6 +1892,13 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
             <button onClick={() => { setPinChangeOpen(true); setOpen(false); }}
               className="menu-item" style={menuItemSt}>
               <Lock size={14} color={T.purple} /> PIN kodlarni o'zgartirish
+            </button>
+          )}
+          {role === "azim" && (
+            <button onClick={() => { setEditCodeOpen(true); setOpen(false); }}
+              className="menu-item" style={menuItemSt}>
+              <ShieldCheck size={14} color={T.teal} /> Tahrirlash tasdiqlash kodi
+              {!data?.settings?.editCodeHash && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.red, fontWeight: 700 }}>standart!</span>}
             </button>
           )}
           {role === "azim" && (
@@ -1976,6 +1990,14 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
       {pinChangeOpen && (
         <PinChangeModal pins={data.settings.pins} onClose={() => setPinChangeOpen(false)}
           onSave={(newPins) => patch((d) => { d.settings.pins = newPins; return d; })} />
+      )}
+      {editCodeOpen && (
+        <EditCodeModal hasCustom={!!data?.settings?.editCodeHash} onClose={() => setEditCodeOpen(false)}
+          onSave={async (code) => {
+            const h = await hashEditCode(code);
+            setEditCodeHash(h);
+            patch((d) => { d.settings.editCodeHash = h; return d; });
+          }} />
       )}
       {ownerCodesOpen && (
         <OwnerCodesModal codes={data.settings.extraAdminCodes || []} onClose={() => setOwnerCodesOpen(false)}
@@ -3429,7 +3451,7 @@ export default function App({ branchId = "main" }) {
       <GlobalStyles />
 
       {/* HEADER */}
-      <header style={{
+      <header className="hdr-wrap" style={{
         background: "rgba(255,255,255,.82)",
         backdropFilter: "blur(18px) saturate(160%)",
         WebkitBackdropFilter: "blur(18px) saturate(160%)",
@@ -3668,6 +3690,10 @@ function DashboardTab({ data, patch, rate, setTab }) {
     supDebt > 0 && {
       text: `Ta'minotchiga ${fmtSum(supDebt)} qarz bor`,
       color: T.red, onClick: () => setTab("debtbook"),
+    },
+    (data.priceReviews || []).filter((r) => r.status === "kutilmoqda").length > 0 && {
+      text: `${(data.priceReviews || []).filter((r) => r.status === "kutilmoqda").length} ta mahsulot narxi tekshiruv kutmoqda`,
+      color: T.gold, onClick: () => setTab("warehouse"),
     },
     waitingLeads.length > 0 && {
       text: `${waitingLeads.length} ta mijoz javob kutmoqda`,
@@ -4051,7 +4077,7 @@ function CallCenterTab({ data, patch }) {
       </div>
 
       {/* ICHKI BO'LIMLAR */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
         {[
           ["calls", "Qo'ng'iroqlar", Phone],
           ["tasks", `Vazifalar${overdueCount > 0 ? ` (${overdueCount})` : ""}`, ListTodo],
@@ -6485,6 +6511,8 @@ function WarehouseTab({ data, patch, rate, role }) {
   const [invOpen, setInvOpen] = useState(false);
   const [invReqOpen, setInvReqOpen] = useState(false);
   const [respondReq, setRespondReq] = useState(null);
+  const [priceReviewOpen, setPriceReviewOpen] = useState(false);
+  const pendingPriceReviews = (data.priceReviews || []).filter((r) => r.status === "kutilmoqda");
   const [catFilter, setCatFilter] = useState("barchasi");
   const [search, setSearch] = useState("");
 
@@ -6542,6 +6570,7 @@ function WarehouseTab({ data, patch, rate, role }) {
   function addStock(entry) {
     patch((d) => {
       let product = d.products.find((p) => p.id === entry.productId);
+      const isNewProduct = !product;
       const prevCost = product ? num(product.costSum) : 0;
       if (!product) {
         product = { id: uid(), name: entry.productName, unit: entry.unit, category: entry.category, costSum: 0, priceSum: entry.priceSum || 0, priceUsd: entry.priceUsd || 0, qty: 0, convUnit: entry.convUnit, convFactor: entry.convFactor };
@@ -6551,10 +6580,29 @@ function WarehouseTab({ data, patch, rate, role }) {
       const newQty = prevQty + entry.qty;
       product.costSum = newQty > 0 ? Math.round((prevQty * prevCost + entry.qty * entry.unitCostSum) / newQty) : entry.unitCostSum;
       product.qty = newQty;
-      if (entry.updatePrice) { product.priceSum = entry.priceSum; product.priceUsd = entry.priceUsd; }
+      // MUHIM: mavjud mahsulotning SOTISH narxi endi bu yerda o'zgarmaydi — buni faqat
+      // Azim Avazovich, pastdagi "Narx tekshiruvi" oynasi orqali o'zgartiradi (quyida).
 
+      const stockInId = uid();
+      if (!isNewProduct && entry.sourceType === "Ta'minotchi") {
+        const last = lastSupplierCost(d.stockIns, product.id, entry.supplier);
+        const sameCurrencyUsd = last && last.currency === "USD" && entry.currency === "USD";
+        const diff = last
+          ? (sameCurrencyUsd ? num(entry.unitCostOriginal) - num(last.unitCostOriginal) : num(entry.unitCostSum) - num(last.unitCostSum))
+          : 0;
+        if (last && Math.abs(diff) > 0.5) {
+          d.priceReviews = d.priceReviews || [];
+          d.priceReviews.push({
+            id: uid(), date: entry.date, time: nowTime(), status: "kutilmoqda",
+            productId: product.id, productName: product.name, supplier: entry.supplier,
+            prevUnitCostSum: num(last.unitCostSum), newUnitCostSum: num(entry.unitCostSum),
+            prevUnitCostOriginal: last.unitCostOriginal, newUnitCostOriginal: entry.unitCostOriginal,
+            currency: entry.currency, stockInId,
+          });
+        }
+      }
       d.stockIns.unshift({
-        id: uid(), date: entry.date, productId: product.id, productName: product.name, qty: entry.qty, unit: product.unit,
+        id: stockInId, time: nowTime(), date: entry.date, productId: product.id, productName: product.name, qty: entry.qty, unit: product.unit,
         currency: entry.currency, unitCostSum: entry.unitCostSum, totalSum: entry.totalSum,
         unitCostOriginal: entry.unitCostOriginal, totalOriginal: entry.totalOriginal, paidOriginal: entry.paidOriginal,
         convQty: entry.convQty, convUnitUsed: entry.convUnitUsed,
@@ -6562,7 +6610,7 @@ function WarehouseTab({ data, patch, rate, role }) {
       });
 
       if (entry.sourceType === "Ta'minotchi" && entry.paidSum > 0) {
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: entry.date, type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: entry.paidSum, amountSum: entry.paidSum, amountUsd: entry.paidSum / rate, supplier: entry.supplier, note: `${product.name} x${entry.qty} — kirim to'lovi` });
+        d.cashflow.unshift({ id: uid(), time: nowTime(), date: entry.date, type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: entry.paidSum, amountSum: entry.paidSum, amountUsd: entry.paidSum / rate, supplier: entry.supplier, stockInId, note: `${product.name} x${entry.qty} — kirim to'lovi` });
       }
       return d;
     });
@@ -6608,17 +6656,100 @@ function WarehouseTab({ data, patch, rate, role }) {
       const idx = (d.stockIns || []).findIndex((s) => s.id === stockInId);
       if (idx < 0) return d;
       const before = d.stockIns[idx];
-      const qtyDelta = num(updated.qty) - num(before.qty);
-      if (qtyDelta !== 0) {
-        const product = d.products.find((p) => p.id === before.productId);
-        if (product) product.qty = Math.max(0, num(product.qty) + qtyDelta);
+      const { recalcCost, paidTarget, ...fields } = updated;
+      const qtyDelta = num(fields.qty) - num(before.qty);
+      const product = d.products.find((p) => p.id === before.productId);
+      if (product) {
+        if (qtyDelta !== 0) product.qty = Math.max(0, num(product.qty) + qtyDelta);
+        if (recalcCost) recalcProductCost(d, product, stockInId, { qty: fields.qty, unitCostSum: fields.unitCostSum });
       }
-      const after = { ...before, ...updated };
+      // Kassadagi dastlabki to'lov yozuvi — sana/ta'minotchi o'zgarsa, u ham mos o'zgaradi
+      const pay = findStockInPayment(d.cashflow, before);
+      if (pay) {
+        if (fields.date) pay.date = fields.date;
+        if (fields.supplier !== undefined) pay.supplier = fields.supplier;
+        pay.stockInId = stockInId;
+      }
+
+      // Qarz holati: faqat "Ta'minotchi" kirimlari qarz hosil qiladi. paidTarget — shu kirim bo'yicha
+      // ENDI to'langan bo'lishi kerak bo'lgan summa. Farq Kassaga yoziladi / Kassadan kamaytiriladi.
+      const oldSource = before.sourceType || "Ta'minotchi";
+      const newSource = fields.sourceType || oldSource;
+      if (newSource === "Ta'minotchi") {
+        const target = Math.min(Math.max(0, num(paidTarget !== undefined ? paidTarget : before.paidSum)), num(fields.totalSum));
+        // "O'z mahsuloti"/"Insider"da "to'langan" summa shunchaki yozuv edi — Kassadan haqiqiy pul chiqmagan
+        const cur = oldSource === "Ta'minotchi" ? num(before.paidSum) : 0;
+        const delta = target - cur;
+        fields.paidSum = target;
+        fields.paidOriginal = fields.currency === "USD" && rate ? target / rate : target;
+        if (delta > 0.5) {
+          d.cashflow.unshift({
+            id: uid(), time: nowTime(), date: fields.date || before.date, type: "chiqim",
+            category: "Ta'minotchiga to'lov", currency: "SUM", amount: delta, amountSum: delta, amountUsd: delta / rate,
+            supplier: fields.supplier, stockInId,
+            note: `${before.productName} x${fields.qty} — kirim to'lovi`,
+          });
+        } else if (delta < -0.5 && pay && num(pay.amountSum) + 0.5 >= -delta) {
+          const left = num(pay.amountSum) + delta;
+          if (left <= 0.5) {
+            d.cashflow = d.cashflow.filter((x) => x.id !== pay.id);
+          } else {
+            pay.amount = left; pay.amountSum = left; pay.amountUsd = left / rate;
+          }
+        }
+      } else {
+        // Qarzsiz manbalar: to'langan summa = jami summa
+        fields.paidSum = num(fields.totalSum);
+        fields.paidOriginal = fields.currency === "USD" ? fields.totalOriginal : fields.totalSum;
+      }
+
+      const after = { ...before, ...fields };
       d.stockIns[idx] = after;
       d.editLog = d.editLog || [];
-      d.editLog.push({ id: uid(), date: todayISO(), before, after, reason, user: "Kassir" });
+      d.editLog.push({ id: uid(), date: todayISO(), time: nowTime(), before, after, reason, user: "Kassir" });
       return d;
     });
+  }
+
+  // Xato kiritilgan kirimni butunlay o'chirish: sklad qoldig'i qaytariladi,
+  // Kassadagi dastlabki to'lov ham (topilsa) o'chiriladi. Hammasi editLog'da saqlanadi.
+  function deleteStockIn(stockInId, reason, recalcCost) {
+    patch((d) => {
+      const idx = (d.stockIns || []).findIndex((s) => s.id === stockInId);
+      if (idx < 0) return d;
+      const before = d.stockIns[idx];
+      const product = d.products.find((p) => p.id === before.productId);
+      if (product) {
+        product.qty = Math.max(0, num(product.qty) - num(before.qty));
+        if (recalcCost) recalcProductCost(d, product, stockInId, null);
+      }
+      const pay = findStockInPayment(d.cashflow, before);
+      if (pay) d.cashflow = d.cashflow.filter((x) => x.id !== pay.id);
+      d.stockIns.splice(idx, 1);
+      d.editLog = d.editLog || [];
+      d.editLog.push({
+        id: uid(), date: todayISO(), time: nowTime(), action: "kirim-ochirildi",
+        before, after: null, removedPayment: pay || null, reason, user: "Kassir",
+      });
+      return d;
+    });
+  }
+
+  async function requestDeleteStockIn(item, reason, recalcCost) {
+    const pay = findStockInPayment(data.cashflow, item);
+    const paid = num(item.paidSum);
+    let msg =
+      `"${item.productName}" kirimi (${item.qty} ${item.unit}, ${fmtSum(item.totalSum)}) o'chirilsinmi?\n\n` +
+      `• Sklad qoldig'i ${item.qty} ${item.unit} ga kamayadi.\n`;
+    if (pay) msg += `• Kassadagi to'lov (${fmtSum(pay.amountSum)}) ham o'chiriladi — pul kassaga qaytadi.\n`;
+    if (paid > 0.5 && !pay) {
+      msg += `\nDiqqat: bu kirim uchun ${fmtSum(paid)} to'langan, lekin to'lov Kassadan avtomatik topilmadi — uni Kassa bo'limidan o'zingiz tekshiring.`;
+    } else if (pay && paid - num(pay.amountSum) > 0.5) {
+      msg += `\nDiqqat: bu kirimga keyinchalik qo'shimcha to'lovlar ham qilingan — ularni Kassa bo'limidan o'zingiz tekshiring.`;
+    }
+    if (!(await askConfirm(msg))) return false;
+    deleteStockIn(item.id, reason, recalcCost);
+    return true;
   }
 
   function addFreeSale(sale) {
@@ -6660,9 +6791,12 @@ function WarehouseTab({ data, patch, rate, role }) {
             Qiymati: <span style={{ color: T.gold, fontWeight: 600 }}>{fmtSum(totalValueSum)}</span>
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {!isReadOnly && <Btn variant="ghost" onClick={() => setSaleOpen(true)}><ShoppingCart size={14} /> Ulgurji savdo</Btn>}
           {!isReadOnly && <Btn variant="ghost" onClick={() => setUsageOpen(true)}><Wrench size={14} /> Xizmat ehtiyoji uchun chiqarish</Btn>}
+          {role === "azim" && pendingPriceReviews.length > 0 && (
+            <Btn variant="gold" onClick={() => setPriceReviewOpen(true)}><AlertTriangle size={14} /> Narx tekshiruvi ({pendingPriceReviews.length})</Btn>
+          )}
           {role === "azim" && (
             <Btn variant="gold" onClick={() => setInvReqOpen(true)}><Calendar size={14} /> Inventarizatsiya so'rovi (kassirga)</Btn>
           )}
@@ -6785,7 +6919,7 @@ function WarehouseTab({ data, patch, rate, role }) {
                     const d = num(r.totalSum) - num(r.paidSum);
                     return <span style={{ color: d > 0 ? T.red : T.teal, fontWeight: 600 }}>{fmtSum(d)}</span>;
                   } },
-                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} rate={rate} onSave={saveStockInEdit} /> },
+                { k: "edit", h: "", r: (r) => <PinGuardEditStockIn item={r} rate={rate} cashflow={data.cashflow} onSave={saveStockInEdit} onDelete={requestDeleteStockIn} /> },
               ]}
               rows={data.stockIns}
             />
@@ -6843,6 +6977,23 @@ function WarehouseTab({ data, patch, rate, role }) {
       {stockOpen && <StockInModal data={data} rate={rate} onClose={() => setStockOpen(false)} onSave={(e) => { addStock(e); setStockOpen(false); }} />}
       {saleOpen && <FreeSaleModal products={data.products} data={data} rate={rate} onClose={() => setSaleOpen(false)} onSave={(s) => { addFreeSale(s); setSaleOpen(false); }} />}
       {usageOpen && <ServiceUsageModal products={data.products} ustaNames={ustaNameOptions(data)} onClose={() => setUsageOpen(false)} onSave={(e) => { addServiceUsage(e); setUsageOpen(false); }} />}
+      {priceReviewOpen && (
+        <PriceReviewModal reviews={pendingPriceReviews} products={data.products}
+          onClose={() => setPriceReviewOpen(false)}
+          onResolve={(reviewId, newPriceSum, newPriceUsd, apply) => {
+            patch((d) => {
+              const r = (d.priceReviews || []).find((x) => x.id === reviewId);
+              if (!r) return d;
+              r.status = apply ? "tasdiqlandi" : "o'zgarishsiz qoldirildi";
+              r.resolvedAt = Date.now();
+              if (apply) {
+                const p = d.products.find((x) => x.id === r.productId);
+                if (p) { p.priceSum = newPriceSum; p.priceUsd = newPriceUsd; }
+              }
+              return d;
+            });
+          }} />
+      )}
       {invReqOpen && (
         <InventoryScheduleModal onClose={() => setInvReqOpen(false)}
           onSave={(date, note) => { scheduleInventory(date, note); setInvReqOpen(false); }} />
@@ -7199,20 +7350,96 @@ function PinGuardEdit({ item, onSave }) {
   );
 }
 
+// ── Tahrirlash/o'chirishni tasdiqlash kodi ────────────────────────────────
+// Egasi menyudan o'zgartiradi; kod xeshlanib (SHA-256) saqlanadi. O'rnatilmagan bo'lsa —
+// eski standart kod ("9999") ishlaydi. Eslatma: bu kod tasodifiy tahrir/o'chirishdan saqlaydi;
+// serverdagi ruxsat tekshiruvi o'rnini bosmaydi.
+const DEFAULT_EDIT_CODE = "9999";
+const EDIT_CODE_SALT = "avtogaz-edit-code-v1:";
+let _editCodeHash = null;
+let _editFails = 0;
+let _editLockUntil = 0;
+function setEditCodeHash(h) { _editCodeHash = h || null; }
+async function hashEditCode(code) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(EDIT_CODE_SALT + code));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function checkEditCode(code) {
+  if (_editCodeHash) return (await hashEditCode(code)) === _editCodeHash;
+  return code === DEFAULT_EDIT_CODE;
+}
+
+function EditCodeModal({ hasCustom, onClose, onSave }) {
+  const [code, setCode] = useState("");
+  const [code2, setCode2] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const digits = (v) => v.replace(/\D/g, "").slice(0, 8);
+
+  async function save() {
+    if (!/^\d{4,8}$/.test(code)) { setErr("Kod 4 dan 8 gacha raqamdan iborat bo'lishi kerak."); return; }
+    if (code === DEFAULT_EDIT_CODE) { setErr("Standart kodni (9999) qayta ishlatib bo'lmaydi."); return; }
+    if (code !== code2) { setErr("Ikkala kod bir xil emas."); return; }
+    setBusy(true); setErr("");
+    try { await onSave(code); onClose(); }
+    catch (e) { setErr("Saqlanmadi: " + String(e?.message || e)); setBusy(false); }
+  }
+
+  return (
+    <Modal title="Tahrirlash tasdiqlash kodi" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+        Bu kod kirim, mahsulot va kartalarni tahrirlash yoki o'chirishdan oldin so'raladi.
+        {hasCustom
+          ? " Hozir sizning shaxsiy kodingiz ishlayapti."
+          : " Hozir STANDART kod (9999) ishlayapti — uni o'zgartiring, chunki u dastur kodida ochiq yozilgan."}
+      </p>
+      <div style={{ display: "grid", gap: 12 }}>
+        <F label="Yangi kod (4–8 raqam)">
+          <input type="password" inputMode="numeric" style={iSt} value={code} autoFocus
+            onChange={(e) => { setCode(digits(e.target.value)); setErr(""); }} />
+        </F>
+        <F label="Yana bir bor kiriting">
+          <input type="password" inputMode="numeric" style={iSt} value={code2}
+            onChange={(e) => { setCode2(digits(e.target.value)); setErr(""); }}
+            onKeyDown={(e) => e.key === "Enter" && save()} />
+        </F>
+      </div>
+      {err && <p style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{err}</p>}
+      <SaveBtn onClick={save} disabled={busy || !code || !code2}>Saqlash</SaveBtn>
+    </Modal>
+  );
+}
+
 function SimplePinModal({ onClose, onSuccess }) {
   const [pin, setPin] = useState("");
-  const [err, setErr] = useState(false);
-  function check() { if (pin === "9999") onSuccess(); else { setErr(true); setPin(""); } }
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function check() {
+    if (busy || !pin) return;
+    const left = _editLockUntil - Date.now();
+    if (left > 0) { setErr(`Juda ko'p xato urinish. ${Math.ceil(left / 1000)} soniyadan keyin qayta urining.`); setPin(""); return; }
+    setBusy(true);
+    let ok = false;
+    try { ok = await checkEditCode(pin); } catch (e) { setBusy(false); setErr("Kodni tekshirib bo'lmadi (saytni https orqali oching)."); return; }
+    setBusy(false);
+    if (ok) { _editFails = 0; onSuccess(); return; }
+    _editFails += 1;
+    if (_editFails >= 5) { _editLockUntil = Date.now() + 60000; _editFails = 0; setErr("5 marta xato kiritildi. 1 daqiqa kuting."); }
+    else setErr("Noto'g'ri kod");
+    setPin("");
+  }
+
   return (
     <Modal title="🔐 Tasdiqlash kodi" onClose={onClose}>
       <p style={{ color: T.muted, fontSize: 13, marginBottom: 14 }}>Tahrirlash uchun kodni kiriting:</p>
       <F label="Kod">
         <input type="password" style={iSt} value={pin}
-          onChange={(e) => { setPin(e.target.value); setErr(false); }}
+          onChange={(e) => { setPin(e.target.value); setErr(""); }}
           onKeyDown={(e) => e.key === "Enter" && check()} autoFocus />
       </F>
-      {err && <p style={{ color: T.red, fontSize: 12, marginTop: 8 }}>Noto'g'ri kod</p>}
-      <SaveBtn onClick={check} disabled={!pin}>Tasdiqlash</SaveBtn>
+      {err && <p style={{ color: T.red, fontSize: 12, marginTop: 8 }}>{err}</p>}
+      <SaveBtn onClick={check} disabled={!pin || busy}>Tasdiqlash</SaveBtn>
     </Modal>
   );
 }
@@ -7245,7 +7472,64 @@ function EditProductModal({ item, onClose, onSave }) {
   );
 }
 
-function PinGuardEditStockIn({ item, rate, onSave }) {
+// Kirimga tegishli Kassadagi DASTLABKI to'lov yozuvini topadi (yangi yozuvlarda stockInId bor;
+// eskilarida — ta'minotchi, sana va summa mos kelsa va aniq bitta bo'lsa).
+// Shu mahsulot uchun AYNAN shu ta'minotchidan (nomi bo'yicha) eng oxirgi kirim yozuvini topadi.
+// Faqat "Ta'minotchi" manbali eski kirimlar hisobga olinadi — "O'z mahsuloti"/"Insider servis" bozor narxi emas.
+function lastSupplierCost(stockIns, productId, supplier) {
+  if (!productId || !supplier) return null;
+  const list = (stockIns || []).filter((s) =>
+    s.productId === productId && (s.sourceType || "Ta'minotchi") === "Ta'minotchi" && sameName(s.supplier, supplier)
+  );
+  if (!list.length) return null;
+  list.sort((a, b) => `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`));
+  return list[0];
+}
+
+function findStockInPayment(cashflow, s) {
+  const list = cashflow || [];
+  const linked = list.find((c) => c.stockInId === s.id);
+  if (linked) return linked;
+  if (!(num(s.paidSum) > 0)) return null;
+  const cand = list.filter((c) =>
+    c.type === "chiqim" && c.category === "Ta'minotchiga to'lov" && !c.debtSettleKind && !c.stockInId &&
+    c.date === s.date && Math.round(num(c.amountSum)) === Math.round(num(s.paidSum)) &&
+    sameName(c.supplier, s.supplier) && String(c.note || "").includes("kirim to'lovi")
+  );
+  return cand.length === 1 ? cand[0] : null;
+}
+
+// Kassadagi "Ta'minotchiga to'lov" yozuvi qaysi kirimning DASTLABKI to'lovi ekanini topadi
+// (yangi yozuvlarda stockInId bor; eskilarida — ta'minotchi, sana, summa va izoh mos kelsa va aniq bitta bo'lsa).
+function findPaymentStockIn(stockIns, c) {
+  if (!c || c.type !== "chiqim" || c.category !== "Ta'minotchiga to'lov" || c.debtSettleKind) return null;
+  const list = stockIns || [];
+  if (c.stockInId) return list.find((s) => s.id === c.stockInId) || null;
+  const note = String(c.note || "");
+  if (!note.includes("kirim to'lovi")) return null;
+  const cand = list.filter((s) =>
+    (s.sourceType || "Ta'minotchi") === "Ta'minotchi" &&
+    sameName(s.supplier, c.supplier) && s.date === c.date &&
+    Math.round(num(s.paidSum)) === Math.round(num(c.amountSum)) &&
+    note.includes(String(s.productName || ""))
+  );
+  return cand.length === 1 ? cand[0] : null;
+}
+
+// Mahsulotning o'rtacha tannarxini kirim tarixi bo'yicha qayta hisoblaydi.
+// excludeId — hisobdan chiqariladigan kirim; replace — uning o'rniga hisoblanadigan yangi qiymat.
+function recalcProductCost(d, product, excludeId, replace) {
+  let q = 0, v = 0;
+  (d.stockIns || []).forEach((s) => {
+    if (s.productId !== product.id || s.id === excludeId) return;
+    q += num(s.qty);
+    v += num(s.qty) * num(s.unitCostSum);
+  });
+  if (replace) { q += num(replace.qty); v += num(replace.qty) * num(replace.unitCostSum); }
+  if (q > 0 && v > 0) product.costSum = Math.round(v / q);
+}
+
+function PinGuardEditStockIn({ item, rate, cashflow, onSave, onDelete }) {
   const [pinOpen, setPinOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   return (
@@ -7254,24 +7538,40 @@ function PinGuardEditStockIn({ item, rate, onSave }) {
         <Pencil size={13} />
       </button>
       {pinOpen && <SimplePinModal onClose={() => setPinOpen(false)} onSuccess={() => { setPinOpen(false); setEditOpen(true); }} />}
-      {editOpen && <EditStockInModal item={item} rate={rate} onClose={() => setEditOpen(false)} onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }} />}
+      {editOpen && (
+        <EditStockInModal
+          item={item} rate={rate} cashflow={cashflow} onClose={() => setEditOpen(false)}
+          onSave={(updated, reason) => { onSave(item.id, updated, reason); setEditOpen(false); }}
+          onDelete={onDelete ? async (reason, recalcCost) => {
+            const done = await onDelete(item, reason, recalcCost);
+            if (done) setEditOpen(false);
+          } : undefined}
+        />
+      )}
     </>
   );
 }
 
-function EditStockInModal({ item, rate, onClose, onSave }) {
+function EditStockInModal({ item, rate, cashflow, onClose, onSave, onDelete }) {
+  // Maydonlar tanlangan valyutada ko'rsatiladi (USD bo'lsa — dollarda).
+  const initUnit = String((item.currency === "USD" ? item.unitCostOriginal : item.unitCostSum) || "");
+  const initTotal = String((item.currency === "USD" ? item.totalOriginal : item.totalSum) || "");
+  const oldSource = item.sourceType || "Ta'minotchi";
+  const paid = num(item.paidSum);
+  // Hozirgi holat: qarzga / naqd / o'z mahsuloti / insider
+  const initMode = oldSource === "O'z mahsuloti" ? "own"
+    : oldSource === "Insider servis" ? "insider"
+    : (num(item.totalSum) - paid > 0.5 ? "debt" : "cash");
+  const [mode, setMode] = useState(initMode);
+  const [paidInput, setPaidInput] = useState(oldSource === "Ta'minotchi" && paid > 0.5 ? String(Math.round(paid)) : "");
   const [currency, setCurrency] = useState(item.currency || "SUM");
   const [qty, setQty] = useState(String(item.qty));
-  // Maydonlar tanlangan valyutada ko'rsatiladi (USD bo'lsa — dollarda). Boshlang'ich qiymat
-  // yozuv qaysi valyutada kiritilgan bo'lsa, shundan olinadi.
-  const [unitCost, setUnitCost] = useState(String(
-    (item.currency === "USD" ? item.unitCostOriginal : item.unitCostSum) || ""
-  ));
-  const [totalAmt, setTotalAmt] = useState(String(
-    (item.currency === "USD" ? item.totalOriginal : item.totalSum) || ""
-  ));
-  const [supplier, setSupplier] = useState(item.supplier || "");
+  const [unitCost, setUnitCost] = useState(initUnit);
+  const [totalAmt, setTotalAmt] = useState(initTotal);
+  const [supplier, setSupplier] = useState(item.supplier === "—" ? "" : (item.supplier || ""));
+  const [date, setDate] = useState(item.date || todayISO());
   const [reason, setReason] = useState("");
+  const [recalc, setRecalc] = useState(null); // null = avtomatik (narx o'zgarsa yoqiladi)
 
   function handleQtyOrUnit(nextQty, nextUnitCost) {
     setQty(nextQty);
@@ -7288,18 +7588,95 @@ function EditStockInModal({ item, rate, onClose, onSave }) {
     setTotalAmt("");
   }
 
+  // Pul maydonlariga tegilmagan bo'lsa (masalan faqat sana/ta'minotchi/to'lov turi o'zgartirilsa),
+  // eski so'm qiymatlari QOLADI — joriy kursda qayta hisoblanib, qarz o'zgarib ketmasligi uchun.
+  const moneyUnchanged = currency === (item.currency || "SUM") && unitCost === initUnit && totalAmt === initTotal;
+  const newUnitSum = moneyUnchanged ? num(item.unitCostSum) : toSum(num(unitCost), currency, rate);
+  const newTotalSum = moneyUnchanged ? num(item.totalSum) : toSum(num(totalAmt), currency, rate);
+  const priceChanged = Math.round(newUnitSum) !== Math.round(num(item.unitCostSum));
+  const recalcOn = recalc === null ? priceChanged : recalc;
+
+  const newSource = mode === "own" ? "O'z mahsuloti" : mode === "insider" ? "Insider servis" : "Ta'minotchi";
+  const isSupplierMode = newSource === "Ta'minotchi";
+  const curPaid = oldSource === "Ta'minotchi" ? paid : 0;
+  const paidTarget = !isSupplierMode ? newTotalSum
+    : mode === "cash" ? newTotalSum
+    : Math.min(Math.max(0, num(paidInput)), newTotalSum);
+  const cashDelta = isSupplierMode ? paidTarget - curPaid : 0;
+  const debtAfter = isSupplierMode ? Math.max(0, newTotalSum - paidTarget) : 0;
+  const pay = findStockInPayment(cashflow, item);
+
+  const problems = [];
+  if (!reason.trim()) problems.push("\"Sabab\" maydoniga nima uchun o'zgartirayotganingizni yozing");
+  if (!num(qty)) problems.push("Miqdor 0 bo'lishi mumkin emas (kirimni butunlay olib tashlash uchun pastdagi \"Kirimni o'chirish\" tugmasidan foydalaning)");
+  if (!num(totalAmt) && !moneyUnchanged) problems.push("Jami summani kiriting");
+  if (isSupplierMode && !supplier.trim()) problems.push("Ta'minotchi nomini kiriting (qarz shu nom ostida hisoblanadi)");
+  if (oldSource === "Ta'minotchi" && !isSupplierMode && paid > 0.5) {
+    problems.push(`Bu kirimga ${fmtSum(paid)} to'lov qilingan, shuning uchun uni qarzsiz manbaga o'zgartirib bo'lmaydi. Kirim butunlay xato bo'lsa — uni o'chirib, qaytadan kiriting`);
+  }
+  if (mode === "debt" && num(paidInput) > newTotalSum + 0.5) problems.push("To'langan summa jami summadan oshib ketdi");
+
+  const modeBtn = (id, label, color) => (
+    <button key={id} type="button" onClick={() => setMode(id)} style={{
+      padding: "11px 8px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 700,
+      border: `1.5px solid ${mode === id ? color : T.border2}`,
+      background: mode === id ? `${color}1F` : T.s3,
+      color: mode === id ? color : T.muted2,
+    }}>{label}</button>
+  );
+
   return (
     <Modal title={`Kirimni tahrirlash — ${item.productName}`} onClose={onClose}>
-      <F label="Valyuta" col="1/-1">
-        <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}` }}>
-          {[["SUM", "So'm"], ["USD", "Dollar"]].map(([id, l]) => (
-            <button key={id} onClick={() => handleCurrency(id)} type="button" style={{
-              flex: 1, padding: "9px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
-              background: currency === id ? T.flame : "transparent", color: currency === id ? "#fff" : T.muted,
-            }}>{l}</button>
-          ))}
+      <F label="Kirim qanday kelgan?" col="1/-1">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {modeBtn("debt", "Qarzga olindi", T.red)}
+          {modeBtn("cash", "Naqd to'landi", T.teal)}
+          {modeBtn("own", "O'z mahsuloti", T.muted2)}
+          {modeBtn("insider", "Insider servis", T.purple)}
         </div>
+        {mode === "debt" && (
+          <p style={{ fontSize: 11.5, color: T.red, marginTop: 6 }}>
+            {debtAfter > 0 ? `Ta'minotchi oldidagi qarz: ${fmtSum(debtAfter)}` : "Hozircha qarz yo'q — pastda to'langan summani kamaytiring"}
+          </p>
+        )}
+        {mode === "cash" && <p style={{ fontSize: 11.5, color: T.teal, marginTop: 6 }}>✓ To'liq to'langan — qarz yo'q</p>}
+        {mode === "own" && <p style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Qarz hosil bo'lmaydi, Kassaga ta'sir qilmaydi</p>}
+        {mode === "insider" && <p style={{ fontSize: 11.5, color: T.purple, marginTop: 6 }}>↔ Tovar bilan hisob-kitob (qarz hosil bo'lmaydi)</p>}
       </F>
+
+      {mode === "debt" && (
+        <div style={{ marginTop: 12 }}>
+          <F label="Shundan to'langan (so'm)" col="1/-1">
+            <input type="number" style={iSt} value={paidInput} onChange={(e) => setPaidInput(e.target.value)} placeholder="0 — hammasi qarzga olingan" />
+          </F>
+          <p style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>
+            Hammasi qarzga olingan bo'lsa — bo'sh qoldiring. Qisman to'langan bo'lsa — to'langan summani yozing.
+          </p>
+        </div>
+      )}
+
+      {isSupplierMode && Math.abs(cashDelta) > 0.5 && (
+        <div style={{ marginTop: 12, padding: "9px 12px", borderRadius: 8, background: T.s3, border: `1px solid ${T.border2}`, fontSize: 12, color: T.muted2, lineHeight: 1.55 }}>
+          {cashDelta > 0
+            ? `Kassada ${fmtSum(cashDelta)} chiqim sifatida yoziladi (${fmtDate(date)} sanasi bilan).`
+            : (pay && num(pay.amountSum) + 0.5 >= -cashDelta
+              ? `Kassadagi to'lov ${fmtSum(-cashDelta)} ga kamaytiriladi.`
+              : "Diqqat: to'lov kamaymoqda, lekin Kassada mos yozuv avtomatik topilmadi — Kassa bo'limida to'lov yozuvini o'zingiz tuzating.")}
+        </div>
+      )}
+
+      <div style={{ marginTop: 14 }}>
+        <F label="Valyuta" col="1/-1">
+          <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}` }}>
+            {[["SUM", "So'm"], ["USD", "Dollar"]].map(([id, l]) => (
+              <button key={id} onClick={() => handleCurrency(id)} type="button" style={{
+                flex: 1, padding: "9px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+                background: currency === id ? T.flame : "transparent", color: currency === id ? "#fff" : T.muted,
+              }}>{l}</button>
+            ))}
+          </div>
+        </F>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
         <F label={`Miqdor (${item.unit})`}>
           <input type="number" style={iSt} value={qty} onChange={(e) => handleQtyOrUnit(e.target.value, unitCost)} />
@@ -7312,27 +7689,120 @@ function EditStockInModal({ item, rate, onClose, onSave }) {
         </F>
         {currency === "USD" && num(totalAmt) > 0 && (
           <p style={{ fontSize: 12, color: T.muted, gridColumn: "1/-1", marginTop: -6 }}>
-            ≈ {fmtSum(toSum(num(totalAmt), "USD", rate))} so'm (joriy kurs {fmtSum(rate)})
+            ≈ {fmtSum(toSum(num(totalAmt), "USD", rate))} (joriy kurs {fmtSum(rate)})
           </p>
         )}
-        <F label="Ta'minotchi" col="1/-1">
+        <F label="Sana">
+          <input type="date" style={iSt} value={date} onChange={(e) => setDate(e.target.value)} />
+        </F>
+        <F label={mode === "insider" ? "Insider servis nomi" : "Ta'minotchi"}>
           <input style={iSt} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
         </F>
         <F label="Sabab *" col="1/-1">
           <input style={iSt} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Xato kiritilgan summa tuzatildi..." />
         </F>
+        <label style={{ gridColumn: "1/-1", display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 12.5 }}>
+          <input type="checkbox" checked={recalcOn} onChange={(e) => setRecalc(e.target.checked)} style={{ accentColor: T.flame, marginTop: 2 }} />
+          <span>
+            Mahsulotning o'rtacha tannarxini kirim tarixi bo'yicha qayta hisoblash
+            <br /><span style={{ color: T.muted, fontSize: 11.5 }}>Narx xato kiritilgan bo'lsa belgilang — foyda hisobi to'g'ri bo'ladi. Narx o'zgartirilsa o'zi belgilanadi.</span>
+          </span>
+        </label>
       </div>
       <p style={{ fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
-        Miqdor o'zgartirilsa, farqi sklad qoldig'iga qo'shiladi/ayiriladi. To'langan summa bu yerdan
-        o'zgartirilmaydi — agar noto'g'ri to'lov kiritilgan bo'lsa, uni Kassa bo'limidan o'chiring.
+        Miqdor o'zgartirilsa, farqi sklad qoldig'iga qo'shiladi/ayiriladi.
       </p>
-      <SaveBtn disabled={!reason.trim() || !num(qty) || !num(totalAmt)} onClick={() => onSave({
-        qty: num(qty), supplier: supplier.trim(), currency,
-        unitCostSum: toSum(num(unitCost), currency, rate),
-        totalSum: toSum(num(totalAmt), currency, rate),
-        unitCostOriginal: currency === "USD" ? num(unitCost) : undefined,
-        totalOriginal: currency === "USD" ? num(totalAmt) : undefined,
+
+      {problems.length > 0 && (
+        <div style={{ marginTop: 12, padding: "9px 12px", borderRadius: 8, background: T.goldD, border: `1px solid ${T.gold}40`, fontSize: 12, color: T.gold, lineHeight: 1.55 }}>
+          {problems.map((p, i) => <div key={i}>• {p}</div>)}
+        </div>
+      )}
+
+      <SaveBtn disabled={problems.length > 0} onClick={() => onSave({
+        qty: num(qty), supplier: supplier.trim() || (newSource === "O'z mahsuloti" ? "—" : supplier.trim()),
+        currency, date: date || item.date, sourceType: newSource,
+        unitCostSum: newUnitSum,
+        totalSum: newTotalSum,
+        unitCostOriginal: currency === "USD" ? (moneyUnchanged ? item.unitCostOriginal : num(unitCost)) : undefined,
+        totalOriginal: currency === "USD" ? (moneyUnchanged ? item.totalOriginal : num(totalAmt)) : undefined,
+        recalcCost: recalcOn,
+        paidTarget: isSupplierMode ? paidTarget : undefined,
       }, reason)}>Saqlash</SaveBtn>
+
+      {onDelete && (
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px dashed ${T.border2}` }}>
+          <p style={{ fontSize: 12, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+            Kirim butunlay xato kiritilgan bo'lsa (noto'g'ri mahsulot tanlangan, ikki marta kiritilgan va h.k.) —
+            uni o'chiring va to'g'risini qaytadan "Kirim qilish" orqali kiriting.
+          </p>
+          <Btn variant="red" disabled={!reason.trim()} onClick={() => onDelete(reason.trim(), recalcOn)}
+            style={{ width: "100%", justifyContent: "center" }}>
+            <Trash2 size={14} /> Kirimni o'chirish
+          </Btn>
+          {!reason.trim() && (
+            <p style={{ fontSize: 11.5, color: T.muted, marginTop: 6, textAlign: "center" }}>
+              O'chirish uchun yuqoridagi "Sabab" maydonini to'ldiring
+            </p>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function PriceReviewModal({ reviews, products, onClose, onResolve }) {
+  const [idx, setIdx] = useState(0);
+  const r = reviews[idx];
+  if (!r) return null;
+  const product = products.find((p) => p.id === r.productId);
+  const oldCost = num(r.prevUnitCostSum);
+  const newCost = num(r.newUnitCostSum);
+  const curPrice = num(product?.priceSum);
+  const markup = oldCost > 0 && curPrice > 0 ? (curPrice - oldCost) / oldCost : null;
+  const suggested = markup !== null ? Math.round((newCost * (1 + markup)) / 1000) * 1000 : curPrice;
+  const [priceInput, setPriceInput] = useState(String(suggested || curPrice || ""));
+
+  function next() {
+    if (idx + 1 < reviews.length) { setIdx(idx + 1); setPriceInput(""); }
+    else onClose();
+  }
+
+  return (
+    <Modal title={`Narx tekshiruvi (${idx + 1}/${reviews.length})`} onClose={onClose}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>{r.productName}</h3>
+      <p style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>Ta'minotchi: {r.supplier}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div style={{ background: T.s3, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 10.5, color: T.muted, textTransform: "uppercase", fontWeight: 700 }}>Eski kelish narxi</div>
+          <div className="mo" style={{ fontSize: 15, fontWeight: 700, marginTop: 4 }}>{fmtSum(oldCost)}</div>
+        </div>
+        <div style={{ background: T.goldD, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 10.5, color: T.gold, textTransform: "uppercase", fontWeight: 700 }}>Yangi kelish narxi</div>
+          <div className="mo" style={{ fontSize: 15, fontWeight: 700, marginTop: 4, color: T.gold }}>{fmtSum(newCost)}</div>
+        </div>
+      </div>
+      <p style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>
+        Hozirgi sotish narxi: <b style={{ color: T.text }}>{fmtSum(curPrice)}</b>
+        {markup !== null && <> (ustama: {Math.round(markup * 100)}%)</>}
+      </p>
+      <F label="Yangi sotish narxi (so'm)">
+        <input type="number" style={iSt} value={priceInput} onChange={(e) => setPriceInput(e.target.value)} />
+      </F>
+      {markup !== null && (
+        <p style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>
+          Taklif: eski ustama foizini saqlagan holda — {fmtSum(suggested)}. Xohlasangiz o'zgartiring.
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <Btn variant="ghost" onClick={() => { onResolve(r.id, 0, 0, false); next(); }} style={{ flex: 1, justifyContent: "center" }}>
+          O'zgarishsiz qoldirish
+        </Btn>
+        <Btn onClick={() => { onResolve(r.id, num(priceInput), num(priceInput) / 1, true); next(); }}
+          disabled={!num(priceInput)} style={{ flex: 1, justifyContent: "center" }}>
+          Tasdiqlash
+        </Btn>
+      </div>
     </Modal>
   );
 }
@@ -7350,7 +7820,6 @@ function StockInModal({ data, rate, onClose, onSave }) {
   const [unitCost, setUnitCost] = useState("");
   const [priceSum, setPriceSum] = useState("");
   const [priceUsd, setPriceUsd] = useState("");
-  const [updatePrice, setUpdatePrice] = useState(false);
   const [supplier, setSupplier] = useState("");
   const [paid, setPaid] = useState(0);
   const [currency, setCurrency] = useState("SUM");
@@ -7371,9 +7840,6 @@ function StockInModal({ data, rate, onClose, onSave }) {
   const totalSum = unitCostSum * effectiveQty;
   const paidSum = toSum(paid, currency, rate);
   const debt = totalSum - paidSum;
-
-  const prevCost = existingProd ? num(existingProd.costSum) : 0;
-  const priceRose = prevCost > 0 && unitCostSum > prevCost;
 
   const canSave = (mode === "existing" ? !!productId : !!newName.trim())
     && (sourceType === "O'z mahsuloti" || sourceType === "Insider servis" || supplier.trim())
@@ -7452,8 +7918,18 @@ function StockInModal({ data, rate, onClose, onSave }) {
             ≈ {effectiveQty} {activeUnit} · 1 {activeUnit} narxi {fmtSum(unitCostSum)}
           </p>
         )}
-        <F label="Sotish narxi (SO'M)"><input type="number" style={iSt} value={priceSum} onChange={(e) => setPriceSum(e.target.value)} /></F>
-        <F label="Sotish narxi (USD)"><input type="number" style={iSt} value={priceUsd} onChange={(e) => setPriceUsd(e.target.value)} /></F>
+        {mode === "new" && (
+          <>
+            <F label="Sotish narxi (SO'M)"><input type="number" style={iSt} value={priceSum} onChange={(e) => setPriceSum(e.target.value)} /></F>
+            <F label="Sotish narxi (USD)"><input type="number" style={iSt} value={priceUsd} onChange={(e) => setPriceUsd(e.target.value)} /></F>
+          </>
+        )}
+        {mode === "existing" && sourceType === "Ta'minotchi" && (
+          <p style={{ gridColumn: "1/-1", fontSize: 11.5, color: T.muted, margin: 0, lineHeight: 1.5 }}>
+            Sotish narxiga tegilmaydi. Agar kelish narxi shu ta'minotchidan oxirgi kirimdan farq qilsa,
+            kirim saqlanadi va narxni ko'rib chiqish uchun Azim Avazovichga yuboriladi.
+          </p>
+        )}
         {sourceType !== "O'z mahsuloti" && (
           <F label={sourceType === "Insider servis" ? "Insider servis nomi" : "Ta'minotchi"}>
             <input style={iSt} value={supplier} onChange={(e) => setSupplier(e.target.value)} list="supplier-name-list" placeholder="Nomi yozing yoki ro'yxatdan tanlang" />
@@ -7466,18 +7942,6 @@ function StockInModal({ data, rate, onClose, onSave }) {
           <F label="Hozir to'landi"><input type="number" style={iSt} value={paid} onChange={(e) => setPaid(e.target.value)} /></F>
         )}
       </div>
-
-      {priceRose && (
-        <div style={{ marginTop: 12, padding: "10px 14px", background: T.goldD, border: `1px solid ${T.gold}30`, borderRadius: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.gold, display: "flex", alignItems: "center", gap: 6 }}>
-            <AlertTriangle size={13} /> Narx oshgan! {fmtSum(prevCost)} → {fmtSum(unitCostSum)}
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, cursor: "pointer", fontSize: 12 }}>
-            <input type="checkbox" checked={updatePrice} onChange={(e) => setUpdatePrice(e.target.checked)} style={{ accentColor: T.gold }} />
-            Sotish narxini ham yangilash
-          </label>
-        </div>
-      )}
 
       {sourceType === "Ta'minotchi" && (
         <div style={{ marginTop: 14, padding: "12px 14px", background: T.s3, borderRadius: 8 }}>
@@ -7502,7 +7966,7 @@ function StockInModal({ data, rate, onClose, onSave }) {
         convQty: useConv ? num(convQty) : undefined,
         convUnitUsed: useConv ? activeConvUnit : undefined,
         unitCostOriginal: num(effectiveUnitCost), totalOriginal: num(effectiveUnitCost) * effectiveQty, // asl valyutadagi summa — kelajakda ko'rsatish uchun
-        priceSum: num(priceSum), priceUsd: num(priceUsd), updatePrice,
+        priceSum: num(priceSum), priceUsd: num(priceUsd),
         supplier: supplier.trim() || (sourceType === "O'z mahsuloti" ? "—" : "Noma'lum"),
         paidSum: sourceType === "Ta'minotchi" ? paidSum : totalSum,
         paidOriginal: sourceType === "Ta'minotchi" ? num(paid) : num(effectiveUnitCost) * effectiveQty,
@@ -8378,17 +8842,24 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
                       // qarzni to'g'ri qaytarolmaydi.
                       const settleId = r.debtSettleId || (r.debtSettleKind === "supplier" ? r.supplier : undefined);
                       const isUstaClose = r.category === "Usta xizmat haqi" && (r.ustaLedgerIds?.length || r.ustaCloseId);
+                      const linkedSI = findPaymentStockIn(data.stockIns, r);
                       const msg = r.debtSettleKind
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu yozuv qarzga bog'langan — o'chirilganda tegishli qarz ("${settleId || ""}") ham shu summaga qaytariladi.`
                         : isSavingsEntry(r)
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — jamg'arma yozuvi. O'chirilganda pul kassaga ${r.type === "chiqim" ? "qaytadi" : "qaytmaydi (qayta ayriladi)"} va jamg'arma qoldig'i ham shunga qarab o'zgaradi.`
                         : isUstaClose
                         ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — usta hisobini yopish yozuvi. O'chirilganda ustaning (va shogirt bo'lgan bo'lsa, uning ham) hisobi qaytadan "to'lanmagan" holatga qaytadi.`
+                        : linkedSI
+                        ? `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}\n\nBu — "${linkedSI.productName}" kirimining to'lovi. O'chirilganda shu kirim bo'yicha ${fmtSum(Math.min(num(linkedSI.paidSum), num(r.amountSum)))} yana ta'minotchi oldidagi qarz sifatida qaytadi.`
                         : `Bu yozuv o'chirilsinmi?\n\n"${r.note || r.category}" — ${fmtSum(r.amountSum)}`;
                       if (!(await askConfirm(msg))) return;
                       patch((d) => {
                         if (r.debtSettleKind) reverseDebtSettlement(d, r.debtSettleKind, settleId, num(r.amountSum));
                         if (isUstaClose) reverseUstaClose(d, r);
+                        if (linkedSI) {
+                          const si = (d.stockIns || []).find((s) => s.id === linkedSI.id);
+                          if (si) si.paidSum = Math.max(0, num(si.paidSum) - num(r.amountSum));
+                        }
                         d.cashflow = d.cashflow.filter((x) => x.id !== r.id);
                         return d;
                       });
@@ -8509,6 +8980,11 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
       )}
       {editEntry && (
         <EditCashEntryModal entry={editEntry} rate={rate} onClose={() => setEditEntry(null)}
+          locked={editEntry.debtSettleKind
+            ? "Bu yozuv qarz to'lovi bo'lgani uchun summa, tur va turkumni o'zgartirib bo'lmaydi (qarz hisobi buzilib ketadi). Xato bo'lsa — yozuvni o'chiring (qarz avtomatik qaytadi) va qaytadan kiriting."
+            : findPaymentStockIn(data.stockIns, editEntry)
+            ? "Bu yozuv skladga kirimning to'lovi: summa, tur va turkumni bu yerdan o'zgartirib bo'lmaydi. To'lov summasini Sklad → kirimni tahrirlash orqali o'zgartiring yoki yozuvni o'chiring."
+            : null}
           onSave={(updated) => {
             patch((d) => {
               const idx = d.cashflow.findIndex((c) => c.id === editEntry.id);
@@ -8591,7 +9067,7 @@ function ExchangeModal({ rate, onClose, onSave }) {
   );
 }
 
-function EditCashEntryModal({ entry, rate, onClose, onSave }) {
+function EditCashEntryModal({ entry, rate, locked, onClose, onSave }) {
   const [type, setType] = useState(entry.type);
   const cats = type === "kirim" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   const [category, setCategory] = useState(cats.includes(entry.category) ? entry.category : cats[0]);
@@ -8605,6 +9081,7 @@ function EditCashEntryModal({ entry, rate, onClose, onSave }) {
   }, [type]);
 
   const amountSum = toSum(amount, currency, rate);
+  const lockStyle = locked ? { opacity: 0.55, pointerEvents: "none" } : undefined;
 
   return (
     <Modal title="Kassa yozuvini tahrirlash" onClose={onClose} wide>
@@ -8612,16 +9089,21 @@ function EditCashEntryModal({ entry, rate, onClose, onSave }) {
         Sana: {fmtDate(entry.date)} — asl yozuv o'zgartiriladi
       </div>
 
-      <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}`, marginBottom: 14 }}>
+      {locked && (
+        <div style={{ padding: "10px 14px", background: T.s3, border: `1px solid ${T.border2}`, borderRadius: 8, marginBottom: 14, fontSize: 12, color: T.muted2, lineHeight: 1.55 }}>
+          🔒 {locked}
+        </div>
+      )}
+      <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border2}`, marginBottom: 14, ...(lockStyle || {}) }}>
         <button onClick={() => setType("kirim")} style={{ flex: 1, padding: 9, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13, background: type === "kirim" ? T.teal : "transparent", color: type === "kirim" ? "#fff" : T.muted }}>Kirim</button>
         <button onClick={() => setType("chiqim")} style={{ flex: 1, padding: 9, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13, background: type === "chiqim" ? T.red : "transparent", color: type === "chiqim" ? "#fff" : T.muted }}>Chiqim</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <F label="Turkum"><Sel value={category} onChange={(e) => setCategory(e.target.value)} options={cats} /></F>
+        <F label="Turkum"><div style={lockStyle}><Sel value={category} onChange={(e) => setCategory(e.target.value)} options={cats} /></div></F>
         <F label="To'lov usuli"><Sel value={paymentType} onChange={(e) => setPaymentType(e.target.value)} options={PAYMENT_TYPES} /></F>
-        <F label="Valyuta"><CurrencyToggle value={currency} onChange={setCurrency} /></F>
-        <F label={`Summa (${currency})`}><input type="number" style={iSt} value={amount} onChange={(e) => setAmount(e.target.value)} /></F>
+        <F label="Valyuta"><div style={lockStyle}><CurrencyToggle value={currency} onChange={setCurrency} /></div></F>
+        <F label={`Summa (${currency})`}><input type="number" style={{ ...iSt, ...(lockStyle || {}) }} value={amount} readOnly={!!locked} onChange={(e) => setAmount(e.target.value)} /></F>
         <F label="Izoh" col="1/-1"><input style={iSt} value={note} onChange={(e) => setNote(e.target.value)} /></F>
       </div>
 
@@ -8630,7 +9112,7 @@ function EditCashEntryModal({ entry, rate, onClose, onSave }) {
         <span className="mo" style={{ fontWeight: 700 }}>{fmtSum(amountSum)}</span>
       </div>
 
-      <SaveBtn color={T.gold} onClick={() => onSave({
+      <SaveBtn color={T.gold} onClick={() => onSave(locked ? { paymentType, note: note.trim() } : {
         type, category, currency, amount: num(amount), amountSum, amountUsd: amountSum / rate,
         paymentType, note: note.trim(),
       })}>

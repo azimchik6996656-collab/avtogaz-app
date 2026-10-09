@@ -25,6 +25,10 @@ export async function GET(request) {
   if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   const key = searchParams.get("key");
+  // KUZATUV (hech narsani bloklamaydi): kim, qaysi filialdan, nima o'qiyotganini
+  // Vercel jurnaliga yozib boramiz — rol bo'yicha cheklov keyingi bosqichda shu
+  // jurnal asosida xavfsiz loyihalanadi.
+  console.log("[data:GET]", JSON.stringify({ role: auth.role, who: auth.email || auth.name || null, branchId: auth.branchId, key }));
   if (!key) return json({ ok: false, error: "key kerak" }, { status: 400 });
 
   try {
@@ -70,6 +74,10 @@ export async function PUT(request) {
 
     const auth = await resolveAuth(request, branchId);
     if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
+
+    // KUZATUV (hech narsani bloklamaydi): kim, qaysi filialga, qancha hajmda
+    // yozayotganini Vercel jurnaliga yozib boramiz.
+    console.log("[data:PUT]", JSON.stringify({ role: auth.role, who: auth.email || auth.name || null, branchId: auth.branchId, key, bytes: (valueStr || "").length }));
 
     if (!key || valueStr === undefined) {
       return json({ ok: false, error: "key va valueStr kerak" }, { status: 400 });
