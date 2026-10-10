@@ -17,7 +17,8 @@ import {
   Loader2, Check, Users, Settings2, ShoppingCart, Download, Upload,
   Car, ShieldCheck, BarChart3, Handshake, RefreshCw, Wrench, Lock,
   LogOut, Delete, KeyRound, Clock, PlayCircle, PauseCircle, Phone, PhoneCall,
-  Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo, FileText
+  Search, Calendar, AlertTriangle, ArrowRight, Zap, Droplets, Star, Pencil, Save, BookOpen, ListTodo, FileText,
+  UserX, UserCheck,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════
@@ -669,10 +670,10 @@ function doExportExcel(data, rate) {
 // Faqat LoginScreen uchun — u atayin quyuq (dark) fonda qoladi, chunki
 // login sahifasi allaqachon yaxshi ishlangan va o'zgartirish so'ralmagan.
 const LOGIN_T = {
-  bg: "#11141A", s1: "#171B22", s2: "#1A1F27", s3: "#20262F", s4: "#282F39",
-  border: "#2A3038", border2: "#3A424E",
-  text: "#E4E7EC", muted: "#8B93A0", muted2: "#B4BBC6",
-  flame: "#F17225", flameD: "#F1722522",
+  bg: "#0F1A27", s1: "#152335", s2: "#182839", s3: "#1E3044", s4: "#263A50",
+  border: "#24364A", border2: "#33485F",
+  text: "#E3EAF2", muted: "#8D9DB0", muted2: "#B6C3D1",
+  flame: "#F06A2A", flameD: "#F06A2A22",
   gold: "#C9922A", goldD: "#C9922A22",
   teal: "#14B8A6", tealD: "#14B8A622",
   red: "#F41819", redD: "#F4181922",
@@ -690,24 +691,32 @@ const LOGIN_T = {
 // Endi soyalar iliq siyoh rangida va ko'p qatlamli — aynan shu narsa premium his
 // beradi. Chegaralar bir pog'ona ochroq, matn esa bir oz to'yingroq.
 const T = {
-  bg: "#F4F2ED", s1: "#FFFFFF", s2: "#FBFAF7", s3: "#F3F1EB", s4: "#E9E6DD",
-  border: "#E6E2D7", border2: "#D3CCBC",
-  text: "#1C1913", muted: "#8B8570", muted2: "#4A4536",
-  flame: "#D9591A", flameD: "#D9591A1F",
-  gold: "#A6741C", goldD: "#A6741C1F",
-  teal: "#0E8C7E", tealD: "#0E8C7E1F",
-  red: "#D81315", redD: "#D813151F",
-  blue: "#2159A0", blueD: "#2159A01F",
-  purple: "#6D3FD1", purpleD: "#6D3FD11F",
+  // v69 "COCKPIT" DIZAYNI: ish maydoni sovuq alyuminiy-kulrang (logotipdagi ko'k-qizilga
+  // mos), sarlavha va menyu esa to'q "tungi asboblar paneli" (hdr*). sig — faol bo'lim
+  // ostidagi yonib turgan sariq LED. *L — to'q fonda o'qiladigan yorug' variantlar.
+  bg: "#E7EBEF", s1: "#FFFFFF", s2: "#F6F8FA", s3: "#EEF1F5", s4: "#DEE4EA",
+  border: "#D8DFE6", border2: "#C1CBD5",
+  text: "#111923", muted: "#5F6D7D", muted2: "#384555",
+  flame: "#CC4314", flameD: "#CC43141C",
+  gold: "#A3720F", goldD: "#A3720F1C",
+  teal: "#0A8274", tealD: "#0A82741C",
+  red: "#CE1A1F", redD: "#CE1A1F1C",
+  blue: "#1C5DA6", blueD: "#1C5DA61C",
+  purple: "#6A43C8", purpleD: "#6A43C81C",
   ink: "#0F172A", line: "#1E293B",
 
-  // ── BALANDLIK (elevation) tizimi: iliq siyoh, ko'p qatlamli, past shaffoflik ──
-  sh1: "0 1px 2px rgba(62,50,30,.05), 0 1px 3px rgba(62,50,30,.04)",
-  sh2: "0 2px 4px rgba(62,50,30,.04), 0 8px 20px rgba(62,50,30,.06)",
-  sh3: "0 12px 32px rgba(62,50,30,.10), 0 3px 8px rgba(62,50,30,.05)",
-  shPop: "0 16px 40px rgba(40,32,18,.14), 0 4px 12px rgba(40,32,18,.07)",
-  shModal: "0 40px 90px rgba(32,25,14,.24), 0 10px 28px rgba(32,25,14,.10)",
-  shHead: "0 1px 0 rgba(62,50,30,.07), 0 6px 20px rgba(62,50,30,.045)",
+  hdr: "#132131", hdr2: "#1B2C40", hdrLine: "rgba(255,255,255,.09)",
+  hdrText: "#E3EAF2", hdrMuted: "#8D9DB0",
+  sig: "#F6A81E",
+  tealL: "#5FD3C2", goldL: "#F4C468", redL: "#FF8A80", blueL: "#93BDF2", flameL: "#FF9E6E",
+
+  // ── BALANDLIK (elevation): sovuq siyoh tusidagi ko'p qatlamli soyalar ──
+  sh1: "0 1px 2px rgba(17,30,45,.06), 0 1px 3px rgba(17,30,45,.05)",
+  sh2: "0 2px 4px rgba(17,30,45,.05), 0 10px 24px rgba(17,30,45,.08)",
+  sh3: "0 14px 36px rgba(17,30,45,.13), 0 3px 9px rgba(17,30,45,.06)",
+  shPop: "0 18px 44px rgba(12,22,34,.18), 0 5px 14px rgba(12,22,34,.08)",
+  shModal: "0 44px 100px rgba(10,18,28,.30), 0 12px 30px rgba(10,18,28,.12)",
+  shHead: "0 1px 0 rgba(0,0,0,.25), 0 8px 24px rgba(10,18,28,.18)",
 };
 
 const SERVICE_COLORS = {
@@ -728,10 +737,12 @@ function GlobalStyles() {
       html{-webkit-text-size-adjust:100%}
       body{
         background:${T.bg};
-        /* Juda nozik iliq yorug'lik — tekis krem fonni "qog'oz" kabi jonlantiradi */
+        /* Muhandislik chizmasi (blueprint) to'ri — juda nozik, o'qishga xalaqit bermaydi */
         background-image:
-          radial-gradient(1200px 620px at 12% -8%, rgba(217,89,26,.045), transparent 62%),
-          radial-gradient(1000px 560px at 92% 4%, rgba(33,89,160,.035), transparent 58%);
+          linear-gradient(rgba(28,93,166,.042) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(28,93,166,.042) 1px, transparent 1px),
+          radial-gradient(1100px 520px at 50% -12%, rgba(204,67,20,.06), transparent 62%);
+        background-size:28px 28px, 28px 28px, auto;
         background-attachment:fixed;
         color:${T.text};font-family:'Barlow',sans-serif;font-size:14px;line-height:1.5;
         -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
@@ -747,14 +758,35 @@ function GlobalStyles() {
       input:focus,select:focus,textarea:focus{outline:none;border-color:${T.flame}!important;box-shadow:0 0 0 3px ${T.flame}22;background:${T.s1}}
       input::placeholder,textarea::placeholder{color:${T.muted};opacity:.85}
       /* Klaviatura bilan yurganda ko'rinadigan aniq halqa — sichqoncha bilan chiqmaydi */
-      :focus-visible{outline:2px solid ${T.flame}80;outline-offset:2px;border-radius:6px}
-      ::selection{background:${T.flame}2E;color:${T.text}}
+      :focus-visible{outline:2px solid ${T.sig};outline-offset:2px;border-radius:6px}
+      ::selection{background:${T.sig}55;color:${T.text}}
+      /* Asboblar panelidagi kabi holat chirog'i */
+      .led{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+      /* Bo'lim nomi oldida "yoqilg'i shkalasi" chizig'i */
+      h2.bc{display:flex;align-items:center;gap:10px}
+      h2.bc::before{content:"";width:4px;height:.95em;border-radius:2px;flex-shrink:0;
+        background:linear-gradient(180deg,${T.sig},${T.flame});box-shadow:0 0 8px ${T.sig}55}
+      /* Statistika kartasi pastida nozik o'lchov shkalasi */
+      .stat-card::after{content:"";position:absolute;left:18px;right:18px;bottom:0;height:6px;pointer-events:none;opacity:.5;
+        background:repeating-linear-gradient(90deg,${T.border2} 0 1px,transparent 1px 30px) left bottom/100% 6px no-repeat,
+          repeating-linear-gradient(90deg,${T.border2} 0 1px,transparent 1px 6px) left bottom/100% 3px no-repeat}
+      /* Yuklanish manometri: strelka "gaz bosilgandek" ko'tarilib, qaytib tushadi */
+      @keyframes needle{0%{transform:rotate(-135deg)}48%{transform:rotate(100deg)}58%{transform:rotate(86deg)}66%{transform:rotate(96deg)}100%{transform:rotate(-135deg)}}
       ::-webkit-scrollbar{width:9px;height:9px}
       ::-webkit-scrollbar-track{background:transparent}
       ::-webkit-scrollbar-thumb{background:${T.border2};border-radius:99px;border:2px solid transparent;background-clip:content-box}
       ::-webkit-scrollbar-thumb:hover{background:${T.muted};background-clip:content-box}
       *{scrollbar-width:thin;scrollbar-color:${T.border2} transparent}
-      .rh:hover{background:${T.flameD}!important}
+      .rh:hover{background:rgba(28,93,166,.055)!important}
+      /* Qator ustiga kelinganda chap chetda sariq "strelka" */
+      .rh:hover td:first-child{box-shadow:inset 3px 0 0 ${T.sig}}
+      /* Karta sarlavhasining pastki chetida o'lchov chizg'ichi (har 40px da uzun chiziqcha) */
+      .card-hd::after{content:"";position:absolute;left:18px;right:18px;bottom:0;height:7px;pointer-events:none;opacity:.75;
+        background:repeating-linear-gradient(90deg,${T.border2} 0 1px,transparent 1px 40px) left bottom/100% 7px no-repeat,
+          repeating-linear-gradient(90deg,${T.border2} 0 1px,transparent 1px 8px) left bottom/100% 4px no-repeat}
+      /* Holat belgisi — yonib turgan indikator chiroqcha */
+      .bdg::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 5px currentColor;flex-shrink:0}
+      .mdl-x:hover{background:rgba(255,255,255,.1)!important;color:#fff!important}
       .stat-card{transition:box-shadow .2s cubic-bezier(.4,0,.2,1), transform .2s cubic-bezier(.4,0,.2,1), border-color .2s ease}
       .stat-card:hover{box-shadow:${T.sh3};transform:translateY(-2px);border-color:${T.flame}45!important}
       .ch{transition:box-shadow .2s cubic-bezier(.4,0,.2,1), transform .2s cubic-bezier(.4,0,.2,1), border-color .2s ease}
@@ -766,8 +798,11 @@ function GlobalStyles() {
       @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
       .fi{animation:fadeUp .26s cubic-bezier(.22,1,.36,1) both}
       .tab-btn{transition:background .16s ease, color .16s ease, box-shadow .16s ease}
-      .tab-btn:not(.active):hover{background:${T.s3}!important; color:${T.text}!important}
-      .tab-btn.active{box-shadow:inset 0 0 0 1px ${T.flame}2E}
+      .tab-btn{position:relative}
+      .tab-btn:not(.active):hover{background:rgba(255,255,255,.06)!important; color:${T.hdrText}!important}
+      /* Faol bo'lim — panel chetida yonib turgan sariq LED strelka */
+      .tab-btn.active::after{content:"";position:absolute;left:12px;right:12px;bottom:-8px;height:3px;border-radius:3px 3px 0 0;background:${T.sig};box-shadow:0 0 10px ${T.sig}AA,0 0 2px ${T.sig}}
+      .tab-btn:focus-visible{outline-color:${T.sig}}
       .spin{animation:spin 1s linear infinite}
       .pulse{animation:pulse 1.5s ease infinite}
       select{appearance:none}
@@ -802,15 +837,14 @@ const iSt = {
   width: "100%", padding: "9px 12px", borderRadius: 9,
   border: `1px solid ${T.border}`, background: T.s2,
   color: T.text, fontSize: 13,
-  boxShadow: "inset 0 1px 2px rgba(62,50,30,.04)",
+  boxShadow: "inset 0 1px 2px rgba(17,30,45,.08), inset 0 0 0 1px rgba(255,255,255,.4)",
 };
 
 function F({ label, children, col }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5, gridColumn: col }}>
       <label style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: ".08em",
-        textTransform: "uppercase", color: T.muted2,
+        fontSize: 11.5, fontWeight: 600, letterSpacing: ".01em", color: T.muted2,
       }}>{label}</label>
       {children}
     </div>
@@ -942,7 +976,7 @@ function Modal({ title, onClose, children, wide, xwide }) {
   return typeof document === "undefined" ? null : createPortal(
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{
       position: "fixed", inset: 0, zIndex: 200,
-      background: "rgba(38,31,20,.42)",
+      background: "rgba(10,18,28,.52)",
       backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: "18px 14px",
@@ -958,13 +992,16 @@ function Modal({ title, onClose, children, wide, xwide }) {
         {/* SARLAVHA — doim ko'rinib turadi */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "14px 22px", borderBottom: `1px solid ${T.border}`,
-          background: T.s2, flexShrink: 0,
+          padding: "14px 22px", borderBottom: `2px solid ${T.sig}`,
+          background: `linear-gradient(180deg, ${T.hdr2}, ${T.hdr})`, flexShrink: 0,
         }}>
-          <span className="bc" style={{ fontSize: 16, fontWeight: 700, letterSpacing: ".005em" }}>{title}</span>
-          <button onClick={onClose} aria-label="Yopish" className="menu-item" style={{
+          <span className="bc" style={{ fontSize: 16, fontWeight: 700, letterSpacing: ".005em", color: T.hdrText, display: "flex", alignItems: "center", gap: 9 }}>
+            <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: T.sig, boxShadow: `0 0 8px ${T.sig}` }} />
+            {title}
+          </span>
+          <button onClick={onClose} aria-label="Yopish" className="mdl-x" style={{
             background: "transparent", border: "none", cursor: "pointer",
-            color: T.muted, width: 30, height: 30, borderRadius: 8,
+            color: T.hdrMuted, width: 30, height: 30, borderRadius: 8,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}><X size={17} /></button>
         </div>
@@ -999,7 +1036,7 @@ function SaveBtn({ onClick, disabled, children = "Saqlash", color }) {
         ? T.s3
         : color
           ? `linear-gradient(180deg,${color}F2,${color} 55%,${color}CC)`
-          : `linear-gradient(180deg,#E4682A,${T.flame} 55%,#C74E12)`,
+          : `linear-gradient(180deg,#E25A26,${T.flame} 55%,#A3330C)`,
       color: isDisabled ? T.muted : "#fff", fontWeight: 700, fontSize: 13.5,
       cursor: isDisabled ? "not-allowed" : "pointer",
       boxShadow: isDisabled
@@ -1040,15 +1077,19 @@ function Btn({ onClick, children, variant = "primary", size = "md", style: s, di
     // Asosiy tugma: yuqoridan nozik yorug'lik (inset) + o'z rangidagi yumshoq soya —
     // tekis to'ldirilgan tugmadan ko'ra "ko'tarilgan", qimmatroq ko'rinadi.
     primary: {
-      background: `linear-gradient(180deg,#E4682A,${T.flame} 55%,#C74E12)`,
+      background: `linear-gradient(180deg,#E25A26,${T.flame} 55%,#A3330C)`,
       color: "#fff", border: "none",
-      boxShadow: `inset 0 1px 0 rgba(255,255,255,.22), 0 1px 2px rgba(62,50,30,.10), 0 4px 12px ${T.flame}33`,
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,.25), inset 0 -2px 0 rgba(0,0,0,.18), 0 1px 2px rgba(17,30,45,.12), 0 4px 12px ${T.flame}38`,
     },
-    ghost: { background: T.s1, color: T.muted2, border: `1px solid ${T.border2}`, boxShadow: T.sh1 },
-    teal: { background: T.tealD, color: T.teal, border: `1px solid ${T.teal}40` },
-    red: { background: T.redD, color: T.red, border: `1px solid ${T.red}40` },
-    gold: { background: T.goldD, color: T.gold, border: `1px solid ${T.gold}40` },
-    purple: { background: T.purpleD, color: T.purple, border: `1px solid ${T.purple}40` },
+    // Cockpit: har bir tugma pastki qirrasi bilan — bosiladigan haqiqiy klavish kabi
+    ghost: {
+      background: `linear-gradient(180deg,${T.s1},${T.s3})`, color: T.muted2, border: `1px solid ${T.border2}`,
+      boxShadow: "inset 0 1px 0 #fff, inset 0 -1px 0 rgba(17,30,45,.07), 0 1px 2px rgba(17,30,45,.07)",
+    },
+    teal: { background: T.tealD, color: T.teal, border: `1px solid ${T.teal}40`, boxShadow: `inset 0 -1px 0 ${T.teal}30` },
+    red: { background: T.redD, color: T.red, border: `1px solid ${T.red}40`, boxShadow: `inset 0 -1px 0 ${T.red}30` },
+    gold: { background: T.goldD, color: T.gold, border: `1px solid ${T.gold}40`, boxShadow: `inset 0 -1px 0 ${T.gold}30` },
+    purple: { background: T.purpleD, color: T.purple, border: `1px solid ${T.purple}40`, boxShadow: `inset 0 -1px 0 ${T.purple}30` },
   };
   return (
     <button onClick={onClick} disabled={disabled} title={title} type={type || "button"} className="btn" style={{
@@ -1064,10 +1105,11 @@ function Btn({ onClick, children, variant = "primary", size = "md", style: s, di
 
 function Badge({ children, color }) {
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      padding: "2px 9px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-      background: color + "1A", color, letterSpacing: ".02em",
+    <span className="bdg" style={{
+      display: "inline-flex", alignItems: "center", gap: 6,
+      padding: "3px 9px 3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+      background: color + "14", border: `1px solid ${color}30`, color, letterSpacing: ".02em",
+      whiteSpace: "nowrap",
     }}>{children}</span>
   );
 }
@@ -1948,12 +1990,13 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
     <div ref={menuRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((s) => !s)} style={{
         display: "flex", alignItems: "center", gap: 6,
-        background: T.s2, border: `1px solid ${T.border2}`,
+        background: "rgba(255,255,255,.06)", border: `1px solid ${T.hdrLine}`,
         borderRadius: 8, padding: "7px 11px", cursor: "pointer",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.05)",
       }}>
-        <Settings2 size={13} color={T.flame} />
-        <span className="mo hide-sm" style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{fmtSum(rate)}</span>
-        <ChevronDown size={11} color={T.muted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+        <Settings2 size={13} color={T.sig} />
+        <span className="mo hide-sm" style={{ fontSize: 11, fontWeight: 600, color: T.hdrText }}>{fmtSum(rate)}</span>
+        <ChevronDown size={11} color={T.hdrMuted} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
       </button>
 
       {open && (
@@ -2141,12 +2184,7 @@ function Tbl({ cols, rows, empty, pageSize = 25, dense = false, maxH = 620 }) {
   if (!rows.length)
     return (
       <div style={{ padding: "44px 20px", textAlign: "center" }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 11, margin: "0 auto 12px",
-          background: T.s3, display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <Search size={17} color={T.border2} />
-        </div>
+        <EmptyGauge />
         <div style={{ color: T.muted, fontSize: 13 }}>{empty || "Ma'lumot yo'q"}</div>
       </div>
     );
@@ -2163,14 +2201,13 @@ function Tbl({ cols, rows, empty, pageSize = 25, dense = false, maxH = 620 }) {
             <tr>
               {cols.map((c) => (
                 <th key={c.k} style={{
-                  padding: `10px 14px`, textAlign: colAlign(c), color: T.muted,
-                  fontWeight: 700, fontSize: 9.5, textTransform: "uppercase",
-                  letterSpacing: ".08em", whiteSpace: "nowrap",
-                  // Aylantirilganda ostidagi qatorlar "ko'rinib ketmasligi" uchun to'liq
-                  // shaffof bo'lmagan fon + nozik soya (avval faqat chegara bor edi).
-                  background: T.s2, position: "sticky", top: 0, zIndex: 2,
-                  borderBottom: `1px solid ${T.border2}`,
-                  boxShadow: "0 1px 0 rgba(62,50,30,.04), 0 4px 8px -6px rgba(62,50,30,.18)",
+                  padding: `10px 14px`, textAlign: colAlign(c), color: "#B9C6D4",
+                  fontWeight: 600, fontSize: 11, letterSpacing: ".03em", whiteSpace: "nowrap",
+                  // Cockpit: jadval sarlavhasi — to'q asboblar paneli tasmasi (yopishqoq,
+                  // aylantirilganda ham ustida qoladi), ostida sariq LED chiziq.
+                  background: T.hdr2, position: "sticky", top: 0, zIndex: 2,
+                  borderBottom: `2px solid ${T.sig}99`,
+                  boxShadow: "none",
                 }}>{c.h}</th>
               ))}
             </tr>
@@ -2416,10 +2453,9 @@ function ScrollableTabs({ tabs, tab, setTab }) {
   return (
     <div style={{
       position: "sticky", top: 54, zIndex: 90,
-      background: "rgba(255,255,255,.82)",
-      backdropFilter: "blur(18px) saturate(160%)",
-      WebkitBackdropFilter: "blur(18px) saturate(160%)",
-      borderBottom: `1px solid ${T.border}`,
+      background: `repeating-linear-gradient(135deg, rgba(255,255,255,.022) 0 1px, transparent 1px 5px), ${T.hdr}`,
+      borderBottom: `1px solid ${T.hdrLine}`,
+      boxShadow: "0 6px 18px rgba(10,18,28,.16)",
     }}>
       <div ref={scrollRef} onScroll={updateFade} className="tabs-scroll" style={{ display: "flex", padding: "8px 20px", overflowX: "auto", gap: 4, scrollbarWidth: "none" }}>
         {tabs.map(({ id, label, Icon }) => {
@@ -2433,31 +2469,31 @@ function ScrollableTabs({ tabs, tab, setTab }) {
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "8px 14px", border: "none", borderRadius: 8,
                 cursor: "pointer", fontSize: 12.5, fontWeight: a ? 700 : 500,
-                color: a ? T.flame : T.muted2,
-                background: a ? T.flameD : "transparent",
+                color: a ? "#FFFFFF" : T.hdrMuted,
+                background: a ? "rgba(255,255,255,.08)" : "transparent",
                 whiteSpace: "nowrap",
               }}
             >
-              <Icon size={14} /> {label}
+              <Icon size={14} color={a ? T.sig : undefined} /> {label}
             </button>
           );
         })}
       </div>
       {canLeft && <div style={{
         position: "absolute", left: 0, top: 0, bottom: 0, width: 36,
-        background: "linear-gradient(90deg, rgba(255,255,255,.95), rgba(255,255,255,0))", pointerEvents: "none",
+        background: `linear-gradient(90deg, ${T.hdr}, ${T.hdr}00)`, pointerEvents: "none",
       }} />}
       {canRight && <div style={{
         position: "absolute", right: 0, top: 0, bottom: 0, width: 36,
-        background: "linear-gradient(270deg, rgba(255,255,255,.95), rgba(255,255,255,0))", pointerEvents: "none",
+        background: `linear-gradient(270deg, ${T.hdr}, ${T.hdr}00)`, pointerEvents: "none",
       }} />}
       {canLeft && (
         <button
           onClick={() => scrollRef.current?.scrollBy({ left: -220, behavior: "smooth" })}
           style={{
             position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)",
-            width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.border}`,
-            background: T.s1, color: T.flame, cursor: "pointer", display: "flex",
+            width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.hdrLine}`,
+            background: T.hdr2, color: T.sig, cursor: "pointer", display: "flex",
             alignItems: "center", justifyContent: "center", boxShadow: T.sh1, zIndex: 2,
           }}
           aria-label="Chapga"
@@ -2470,8 +2506,8 @@ function ScrollableTabs({ tabs, tab, setTab }) {
           onClick={() => scrollRef.current?.scrollBy({ left: 220, behavior: "smooth" })}
           style={{
             position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)",
-            width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.border}`,
-            background: T.s1, color: T.flame, cursor: "pointer", display: "flex",
+            width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.hdrLine}`,
+            background: T.hdr2, color: T.sig, cursor: "pointer", display: "flex",
             alignItems: "center", justifyContent: "center", boxShadow: T.sh1, zIndex: 2,
           }}
           aria-label="O'ngga"
@@ -2480,6 +2516,55 @@ function ScrollableTabs({ tabs, tab, setTab }) {
         </button>
       )}
     </div>
+  );
+}
+
+// Manometr shkalasi: 270° yoy bo'ylab 10 ta chiziqcha (pastda bo'sh joy), har uchinchisi uzunroq.
+// Oxirgi 3 tasi to'liq rangda — haqiqiy bosim o'lchagichdagi "qizil zona" kabi.
+const GAUGE_TICKS = Array.from({ length: 10 }, (_, i) => {
+  const a = ((135 + i * 30) * Math.PI) / 180;
+  const r1 = i % 3 === 0 ? 11.2 : 12.6, r2 = 14.6;
+  return { x1: 17 + Math.cos(a) * r1, y1: 17 + Math.sin(a) * r1, x2: 17 + Math.cos(a) * r2, y2: 17 + Math.sin(a) * r2 };
+});
+
+// Yuklanish ekrani: aylanuvchi doiracha o'rniga manometr — strelka "gaz bosilgandek" ko'tariladi.
+const LOADER_TICKS = Array.from({ length: 19 }, (_, i) => {
+  const a = ((135 + i * 15) * Math.PI) / 180;
+  const r1 = i % 3 === 0 ? 33 : 36, r2 = 40;
+  return { x1: 48 + Math.cos(a) * r1, y1: 48 + Math.sin(a) * r1, x2: 48 + Math.cos(a) * r2, y2: 48 + Math.sin(a) * r2, red: i >= 15, major: i % 3 === 0 };
+});
+
+function GaugeLoader() {
+  return (
+    <div role="status" aria-label="Yuklanmoqda" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+      <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true">
+        <circle cx="48" cy="48" r="45" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.12)" strokeWidth="1.5" />
+        {LOADER_TICKS.map((t, i) => (
+          <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+            stroke={t.red ? "#F06A2A" : "rgba(227,234,242,.55)"} strokeWidth={t.major ? 2 : 1.2} strokeLinecap="round" />
+        ))}
+        <g style={{ transformOrigin: "48px 48px", animation: "needle 2.6s cubic-bezier(.45,0,.25,1) infinite" }}>
+          <line x1="48" y1="54" x2="48" y2="16" stroke="#F6A81E" strokeWidth="2.4" strokeLinecap="round" style={{ filter: "drop-shadow(0 0 4px #F6A81E)" }} />
+        </g>
+        <circle cx="48" cy="48" r="5" fill="#1B2C40" stroke="#F6A81E" strokeWidth="1.5" />
+      </svg>
+      <span style={{ fontSize: 12, fontWeight: 600, color: "#8D9DB0", letterSpacing: ".04em" }}>Tizim ishga tushmoqda…</span>
+    </div>
+  );
+}
+
+// Bo'sh jadval: strelkasi nolda turgan kichik manometr.
+function EmptyGauge() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 34 34" aria-hidden="true" style={{ display: "block", margin: "0 auto 12px" }}>
+      <circle cx="17" cy="17" r="16" fill={T.s3} stroke={T.border2} strokeWidth="1" />
+      {GAUGE_TICKS.map((t, i) => (
+        <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={T.border2} strokeWidth={i % 3 === 0 ? 1.4 : 1} strokeLinecap="round" />
+      ))}
+      <line x1="17" y1="17" x2={17 + Math.cos((135 * Math.PI) / 180) * 10} y2={17 + Math.sin((135 * Math.PI) / 180) * 10}
+        stroke={T.muted} strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="17" cy="17" r="2" fill={T.muted} />
+    </svg>
   );
 }
 
@@ -2502,14 +2587,21 @@ function Stat({ label, value, sub, color, Icon, spark }) {
       }} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <span style={{
-          fontSize: 9.5, fontWeight: 700, letterSpacing: ".09em",
-          textTransform: "uppercase", color: T.muted, lineHeight: 1.4, paddingRight: 8,
+          fontSize: 12, fontWeight: 600, letterSpacing: ".005em",
+          color: T.muted2, lineHeight: 1.35, paddingRight: 8,
         }}>{label}</span>
-        {Icon && <div style={{
-          background: color + "14", borderRadius: 8, padding: 6, display: "flex", flexShrink: 0,
-        }}>
-          <Icon size={13} color={color} />
-        </div>}
+        {Icon && (
+          <div style={{ position: "relative", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true" style={{ position: "absolute", inset: 0 }}>
+              <circle cx="17" cy="17" r="16" fill={color + "0F"} stroke={color + "38"} strokeWidth="1" />
+              {GAUGE_TICKS.map((t, i) => (
+                <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+                  stroke={i >= 7 ? color : color + "90"} strokeWidth={i % 3 === 0 ? 1.5 : 1} strokeLinecap="round" />
+              ))}
+            </svg>
+            <Icon size={13} color={color} style={{ position: "relative" }} />
+          </div>
+        )}
       </div>
       <div className="mo bc" style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1.1, letterSpacing: "-.01em" }}>{value}</div>
       {(sub || spark) && (
@@ -2529,17 +2621,20 @@ function Card({ title, children, action, pad = true, accent }) {
       borderRadius: 14, overflow: "hidden",
     }}>
       {title && (
-        <div style={{
-          padding: "12px 18px", borderBottom: `1px solid ${T.border}`,
+        <div className="card-hd" style={{
+          padding: "12px 18px 15px", borderBottom: `1px solid ${T.border}`,
           display: "flex", justifyContent: "space-between", alignItems: "center",
-          gap: 12, minHeight: 46,
-          background: `linear-gradient(180deg,${T.s2},${T.s3})`,
+          gap: 12, minHeight: 49, position: "relative",
+          background: `linear-gradient(180deg,${T.s1},${T.s2})`,
         }}>
           <span className="bc" style={{
-            fontSize: 14.5, fontWeight: 700, letterSpacing: ".01em",
-            display: "flex", alignItems: "center", gap: 8,
+            fontSize: 15, fontWeight: 700, letterSpacing: ".01em",
+            display: "flex", alignItems: "center", gap: 9,
           }}>
-            {accent && <span style={{ width: 3, height: 15, borderRadius: 99, background: accent, display: "inline-block" }} />}
+            <span aria-hidden="true" style={{
+              width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: accent || T.sig,
+              boxShadow: `0 0 0 3px ${accent || T.sig}22, 0 0 8px ${accent || T.sig}99`,
+            }} />
             {title}
           </span>
           {action}
@@ -2841,18 +2936,36 @@ function LoginScreen({ branchId, authError, onSuccess }) {
       <style>{`
         .login-hero{position:relative;flex:1.15;display:flex;flex-direction:column;justify-content:space-between;
           padding:56px 64px;overflow:hidden;
-          background:radial-gradient(circle at 18% 12%, ${LOGIN_T.flame}22, transparent 55%),
+          /* Chizma to'ri + tepada nozik sariq yorug'lik (eski to'q sariq nur o'rniga) */
+          background:linear-gradient(rgba(147,189,242,.05) 1px, transparent 1px) 0 0/32px 32px,
+                     linear-gradient(90deg, rgba(147,189,242,.05) 1px, transparent 1px) 0 0/32px 32px,
+                     radial-gradient(ellipse 70% 45% at 20% 0%, rgba(246,168,30,.09), transparent 70%),
                      radial-gradient(circle at 82% 88%, ${LOGIN_T.teal}1c, transparent 50%),
                      linear-gradient(160deg, ${LOGIN_T.s1}, ${LOGIN_T.bg} 75%);
           border-right:1px solid ${LOGIN_T.border}}
+        /* Fara nuri — sahifa ochilganda bir marta chapdan o'tib, nozik yorug'lik bo'lib qoladi */
+        .login-hero::before{content:"";position:absolute;top:-30%;left:-20%;width:80%;height:160%;pointer-events:none;z-index:0;
+          background:linear-gradient(100deg, transparent 38%, rgba(246,168,30,.075) 50%, transparent 62%);
+          transform:rotate(-6deg);animation:beam 2.6s cubic-bezier(.22,1,.36,1) both}
+        @keyframes beam{from{opacity:0;transform:translateX(-45%) rotate(-6deg)}to{opacity:1;transform:translateX(0) rotate(-6deg)}}
         .login-hero-glow{position:absolute;border-radius:50%;filter:blur(130px);pointer-events:none;z-index:0}
-        .login-hero-glow-1{width:480px;height:480px;background:${LOGIN_T.flame}26;top:-160px;left:-120px}
+        .login-hero-glow-1{width:480px;height:480px;background:rgba(246,168,30,.08);top:-160px;left:-120px}
+        /* Raqamli displey — yorug' yalpiz rangli raqamlar */
+        .lcd{color:#DDF7F2;text-shadow:0 0 14px rgba(95,211,194,.35)}
+        /* Klavishlar: ustiga kelganda yorishadi, bosilganda pastga cho'kadi */
+        .lk{transition:transform .08s ease, background .15s ease, box-shadow .08s ease}
+        .lk:hover{background:rgba(255,255,255,.09)!important}
+        .lk:active{transform:translateY(3px);box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 0 0 rgba(0,0,0,0)!important}
+        /* O't oldirish tugmasi — 4 raqam terilganda "nafas oladi" */
+        @keyframes ign{0%,100%{box-shadow:0 0 0 0 rgba(240,106,42,.45), 0 10px 26px rgba(240,106,42,.35)}50%{box-shadow:0 0 0 7px rgba(240,106,42,0), 0 10px 30px rgba(240,106,42,.5)}}
+        .ign-ready{animation:ign 1.8s ease-in-out infinite}
         .login-hero-glow-2{width:420px;height:420px;background:${LOGIN_T.teal}20;bottom:-140px;right:-100px}
         .login-hero-top{position:relative;z-index:1;display:flex;align-items:center;gap:7px}
         .login-hero-mid{position:relative;z-index:1}
         .login-hero-stats{position:relative;z-index:1;display:flex;gap:16px}
-        .login-hero-stat{flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
-          border-radius:16px;padding:18px 20px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+        /* Asboblar panelidagi botiq displey oynasi */
+        .login-hero-stat{flex:1;background:linear-gradient(180deg, rgba(0,0,0,.30), rgba(0,0,0,.14));border:1px solid rgba(255,255,255,.08);
+          border-radius:16px;padding:18px 20px;box-shadow:inset 0 2px 12px rgba(0,0,0,.38), 0 1px 0 rgba(255,255,255,.05)}
         .login-side{flex:none;width:460px;display:flex;align-items:center;justify-content:center;
           padding:40px 20px;position:relative;z-index:2}
         .login-mobile-info{display:none}
@@ -2892,10 +3005,11 @@ function LoginScreen({ branchId, authError, onSuccess }) {
 
         <div className="login-hero-stats">
           <div className="login-hero-stat">
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: LOGIN_T.muted, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: LOGIN_T.muted2, marginBottom: 8, display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#5FD3C2", boxShadow: "0 0 7px #5FD3C2" }} />
               Vaqt
             </div>
-            <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: LOGIN_T.text }}>
+            <div className="mo lcd" style={{ fontSize: 28, fontWeight: 700, letterSpacing: ".02em" }}>
               {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
             </div>
             <div style={{ fontSize: 11, color: LOGIN_T.muted, fontWeight: 600, marginTop: 3 }}>
@@ -2903,12 +3017,13 @@ function LoginScreen({ branchId, authError, onSuccess }) {
             </div>
           </div>
           <div className="login-hero-stat">
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: LOGIN_T.muted, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: LOGIN_T.muted2, marginBottom: 8, display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#5FD3C2", boxShadow: "0 0 7px #5FD3C2" }} />
               CBU rasmiy kursi
             </div>
             {cbu ? (
               <>
-                <div className="mo" style={{ fontSize: 24, fontWeight: 800, color: LOGIN_T.text }}>{fmtSum(cbu.rate)}</div>
+                <div className="mo lcd" style={{ fontSize: 28, fontWeight: 700, letterSpacing: ".02em" }}>{fmtSum(cbu.rate)}</div>
                 <div style={{ fontSize: 11, color: LOGIN_T.muted, fontWeight: 600, marginTop: 3 }}>1 USD · {cbu.date}</div>
               </>
             ) : (
@@ -2944,12 +3059,12 @@ function LoginScreen({ branchId, authError, onSuccess }) {
           <div style={{
             background: `linear-gradient(160deg, ${LOGIN_T.s2}, ${LOGIN_T.s1})`,
             backdropFilter: "blur(28px) saturate(140%)", WebkitBackdropFilter: "blur(28px) saturate(140%)",
-            border: `1px solid ${LOGIN_T.flame}28`, borderRadius: 22,
-            boxShadow: "0 30px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05)",
+            border: `1px solid ${LOGIN_T.border2}`, borderRadius: 22,
+            boxShadow: "0 30px 70px rgba(0,0,0,.5), inset 0 2px 0 rgba(246,168,30,.6), inset 0 3px 14px rgba(246,168,30,.06)",
             overflow: "hidden",
           }}>
             <div style={{ padding: "32px 30px 22px", textAlign: "center", position: "relative" }}>
-              <div className="mo" style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".18em", textTransform: "uppercase", color: LOGIN_T.muted2, marginBottom: 6 }}>
+              <div className="bc" style={{ fontSize: 24, fontWeight: 700, color: LOGIN_T.text, marginBottom: 4 }}>
                 Xush kelibsiz
               </div>
               <div className="mo" style={{ fontSize: 10, fontWeight: 700, color: LOGIN_T.teal }}>{APP_VERSION}</div>
@@ -3026,25 +3141,34 @@ function LoginScreen({ branchId, authError, onSuccess }) {
 
             <div style={{ padding: "18px 30px 30px" }}>
               <div style={{
-                fontSize: 10.5, fontWeight: 800, letterSpacing: ".16em", textTransform: "uppercase",
-                color: LOGIN_T.flame, marginBottom: 18, display: "flex", alignItems: "center", gap: 9,
+                fontSize: 11.5, fontWeight: 600, textAlign: "center", lineHeight: 1.4,
+                color: LOGIN_T.muted2, marginBottom: 18, display: "flex", alignItems: "center", gap: 10,
               }}>
-                <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
-                Usta / stansiya / ta'minotchi / hamkor / rahbar — PIN
-                <span style={{ flex: 1, height: 1, background: `${LOGIN_T.flame}30` }} />
+                <span style={{ flex: 1, height: 1, background: LOGIN_T.border2 }} />
+                Usta, stansiya, ta'minotchi, hamkor yoki rahbar kodi
+                <span style={{ flex: 1, height: 1, background: LOGIN_T.border2 }} />
               </div>
 
               <div className={error ? "pulse" : ""} style={{
-                display: "flex", justifyContent: "center", gap: 11, marginBottom: 22, minHeight: 14,
+                display: "flex", justifyContent: "center", gap: 16, marginBottom: 22, minHeight: 18,
               }}>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <span key={i} style={{
-                    width: 11, height: 11, borderRadius: "50%",
-                    background: error ? LOGIN_T.red : i < digits.length ? LOGIN_T.flame : "rgba(255,255,255,.14)",
-                    boxShadow: !error && i < digits.length ? `0 0 14px ${LOGIN_T.flame}A0` : "none",
-                    transition: "background .15s, box-shadow .15s",
-                  }} />
-                ))}
+                {Array.from({ length: 4 }).map((_, i) => {
+                  // Panel chirog'i: o'chiq — qora shisha, yoniq — sariq, xato — qizil
+                  const lit = !error && i < digits.length;
+                  return (
+                    <span key={i} style={{
+                      width: 16, height: 16, borderRadius: "50%",
+                      background: error ? "radial-gradient(circle at 35% 30%, #FFB4AC, #E5484D 60%)"
+                        : lit ? "radial-gradient(circle at 35% 30%, #FFE3A3, #F6A81E 60%)"
+                        : "radial-gradient(circle at 35% 30%, #22344A, #0B141F 70%)",
+                      border: "1px solid rgba(255,255,255,.12)",
+                      boxShadow: error ? "0 0 0 3px rgba(0,0,0,.35), 0 0 14px #E5484D"
+                        : lit ? "0 0 0 3px rgba(0,0,0,.35), 0 0 16px #F6A81E"
+                        : "0 0 0 3px rgba(0,0,0,.35), inset 0 1px 2px rgba(0,0,0,.6)",
+                      transition: "background .15s, box-shadow .15s",
+                    }} />
+                  );
+                })}
               </div>
               {lockout.locked && (
                 <p style={{ fontSize: 12, color: LOGIN_T.red, textAlign: "center", marginTop: -12, marginBottom: 16, fontWeight: 600 }}>
@@ -3060,37 +3184,51 @@ function LoginScreen({ branchId, authError, onSuccess }) {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
                   <button key={n} onClick={() => press(String(n))} style={{
-                    background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                    background: "linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.02))",
+                  border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.07), 0 3px 0 rgba(0,0,0,.38)",
                     color: LOGIN_T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
                     fontFamily: "inherit",
-                  }} className="mo">{n}</button>
+                  }} className="mo lk">{n}</button>
                 ))}
                 <button onClick={() => setDigits("")} style={{
-                  background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  background: "linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.02))",
+                  border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.07), 0 3px 0 rgba(0,0,0,.38)",
                   color: LOGIN_T.muted2, fontSize: 15, fontWeight: 700, padding: "16px 0", cursor: "pointer",
-                }}>C</button>
+                }} className="lk">C</button>
                 <button onClick={() => press("0")} style={{
-                  background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  background: "linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.02))",
+                  border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.07), 0 3px 0 rgba(0,0,0,.38)",
                   color: LOGIN_T.text, fontSize: 21, fontWeight: 800, padding: "16px 0", cursor: "pointer",
-                }} className="mo">0</button>
+                }} className="mo lk">0</button>
                 <button onClick={() => !error && setDigits((s) => s.slice(0, -1))} style={{
-                  background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  background: "linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.02))",
+                  border: "1px solid rgba(255,255,255,.09)", borderRadius: 15,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.07), 0 3px 0 rgba(0,0,0,.38)",
                   color: LOGIN_T.muted2, padding: "16px 0", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                }}><Delete size={18} /></button>
+                }} className="lk" aria-label="O'chirish"><Delete size={18} /></button>
               </div>
 
               <button
                 onClick={() => canEnter && checkPin(digits)}
                 disabled={!canEnter}
+                className={canEnter ? "ign-ready" : ""}
                 style={{
-                  width: "100%", padding: 15, borderRadius: 14, border: "none", cursor: canEnter ? "pointer" : "not-allowed",
-                  background: canEnter ? `linear-gradient(135deg, ${LOGIN_T.flame}, #BF360C)` : "rgba(255,255,255,.06)",
+                  width: "100%", padding: 15, borderRadius: 14, cursor: canEnter ? "pointer" : "not-allowed",
+                  border: canEnter ? "1px solid rgba(255,200,150,.35)" : "1px solid rgba(255,255,255,.08)",
+                  // O't oldirish tugmasi: tayyor bo'lganda yonadi va "nafas oladi"
+                  background: canEnter ? `radial-gradient(120% 140% at 50% 0%, #FF8A4C, ${LOGIN_T.flame} 55%, #B23A0E)` : "rgba(255,255,255,.04)",
                   color: canEnter ? "#fff" : LOGIN_T.muted,
                   fontWeight: 800, fontSize: 14.5, letterSpacing: ".01em",
-                  boxShadow: canEnter ? `0 10px 26px ${LOGIN_T.flame}45` : "none",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
                 }}
               >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                  <path d="M12 3v8" /><path d="M6.4 6.6a8 8 0 1 0 11.2 0" />
+                </svg>
                 Kirish
               </button>
               <p style={{ fontSize: 10.5, color: LOGIN_T.muted, textAlign: "center", marginTop: 12, fontWeight: 600 }}>
@@ -3477,11 +3615,11 @@ export default function App({ branchId = "main" }) {
   if (!authChecked)
     return (
       <div style={{
-        minHeight: "100vh", background: T.bg, display: "flex",
+        minHeight: "100vh", background: `radial-gradient(700px 420px at 50% 40%, ${T.hdr2}, ${T.hdr})`, display: "flex",
         alignItems: "center", justifyContent: "center",
       }}>
         <GlobalStyles />
-        <Loader2 size={30} color={T.flame} className="spin" />
+        <GaugeLoader />
       </div>
     );
 
@@ -3519,11 +3657,11 @@ export default function App({ branchId = "main" }) {
   if (!loaded)
     return (
       <div style={{
-        minHeight: "100vh", background: T.bg, display: "flex",
+        minHeight: "100vh", background: `radial-gradient(700px 420px at 50% 40%, ${T.hdr2}, ${T.hdr})`, display: "flex",
         alignItems: "center", justifyContent: "center",
       }}>
         <GlobalStyles />
-        <Loader2 size={30} color={T.flame} className="spin" />
+        <GaugeLoader />
       </div>
     );
 
@@ -3532,11 +3670,11 @@ export default function App({ branchId = "main" }) {
   if ((role === "usta" && !ustaName) || (role === "taminotchi" && !supplierName) || (role === "hamkor" && !partnerId)) {
     return (
       <div style={{
-        minHeight: "100vh", background: T.bg, display: "flex",
+        minHeight: "100vh", background: `radial-gradient(700px 420px at 50% 40%, ${T.hdr2}, ${T.hdr})`, display: "flex",
         alignItems: "center", justifyContent: "center",
       }}>
         <GlobalStyles />
-        <Loader2 size={30} color={T.flame} className="spin" />
+        <GaugeLoader />
       </div>
     );
   }
@@ -3547,10 +3685,8 @@ export default function App({ branchId = "main" }) {
 
       {/* HEADER */}
       <header className="hdr-wrap" style={{
-        background: "rgba(255,255,255,.82)",
-        backdropFilter: "blur(18px) saturate(160%)",
-        WebkitBackdropFilter: "blur(18px) saturate(160%)",
-        borderBottom: `1px solid ${T.border}`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,.022) 0 1px, transparent 1px 5px), linear-gradient(180deg, ${T.hdr2}, ${T.hdr})`,
+        borderBottom: `1px solid ${T.hdrLine}`,
         padding: "0 20px", height: 54, display: "flex",
         alignItems: "center", justifyContent: "space-between",
         position: "sticky", top: 0, zIndex: 100,
@@ -3558,32 +3694,33 @@ export default function App({ branchId = "main" }) {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <div style={{
-            background: "#FBFAF8", borderRadius: 8, padding: "5px 9px",
+            background: "linear-gradient(180deg,#FFFFFF,#EEF2F6)", borderRadius: 8, padding: "5px 9px",
             display: "flex", alignItems: "center", justifyContent: "center",
-            border: `1px solid ${T.border}`,
-            boxShadow: T.sh1, flexShrink: 0,
+            border: "1px solid rgba(255,255,255,.7)",
+            // Xrom halqa — asboblar panelidagi metall gardish kabi
+            boxShadow: "0 0 0 3px rgba(255,255,255,.07), 0 0 0 4px rgba(0,0,0,.25), 0 3px 10px rgba(0,0,0,.4)", flexShrink: 0,
           }}><img src="/logo.png" alt="AVTOGAZ" style={{ display: "block", height: 15, width: "auto" }} /></div>
           <div>
             <div className="bc" style={{
               fontSize: 11, fontWeight: 800, letterSpacing: ".08em", lineHeight: 1,
-              display: "flex", alignItems: "center", gap: 8, color: T.muted2,
+              display: "flex", alignItems: "center", gap: 8, color: T.hdrText,
               textTransform: "uppercase",
             }}>
               Xizmat paneli
               <span className="mo" style={{
-                fontSize: 9, fontWeight: 700, color: T.teal, background: T.tealD,
-                border: `1px solid ${T.teal}35`, borderRadius: 5, padding: "2px 6px",
+                fontSize: 9, fontWeight: 700, color: T.tealL, background: "rgba(95,211,194,.12)",
+                border: "1px solid rgba(95,211,194,.32)", borderRadius: 5, padding: "2px 6px",
                 letterSpacing: 0,
               }}>{APP_VERSION}</span>
               {branchId !== "main" && (
                 <span style={{
-                  fontSize: 9, fontWeight: 700, color: T.flame, background: T.flameD,
-                  border: `1px solid ${T.flame}35`, borderRadius: 5, padding: "2px 6px",
+                  fontSize: 9, fontWeight: 700, color: T.flameL, background: "rgba(255,158,110,.12)",
+                  border: "1px solid rgba(255,158,110,.32)", borderRadius: 5, padding: "2px 6px",
                   letterSpacing: 0, textTransform: "none",
                 }}>{BRANCH_LABELS[branchId] || branchId}</span>
               )}
             </div>
-            <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: ".1em", fontWeight: 600, marginTop: 2 }}>
+            <div style={{ fontSize: 9.5, color: T.hdrMuted, letterSpacing: ".1em", fontWeight: 600, marginTop: 2 }}>
               {(role === "usta" && ustaName ? ustaName.toUpperCase()
                 : role === "taminotchi" && supplierName ? supplierName.toUpperCase()
                 : role === "hamkor" && partnerId ? (data.partners.find((p) => p.id === partnerId)?.name || "HAMKOR").toUpperCase()
@@ -3592,8 +3729,8 @@ export default function App({ branchId = "main" }) {
           </div>
           {role === "rahbar" && (
             <span title="Rahbar rejimi — ma'lumotlarni faqat kuzatish mumkin" style={{
-              fontSize: 10, fontWeight: 700, color: T.blue, background: T.blueD || T.s3,
-              border: `1px solid ${T.blue}40`, padding: "4px 10px", borderRadius: 20,
+              fontSize: 10, fontWeight: 700, color: T.blueL, background: "rgba(147,189,242,.12)",
+              border: "1px solid rgba(147,189,242,.32)", padding: "4px 10px", borderRadius: 20,
               display: "flex", alignItems: "center", gap: 5,
             }}>
               <ShieldCheck size={11} /> <span className="hide-sm">Kuzatuv rejimi</span>
@@ -3604,8 +3741,8 @@ export default function App({ branchId = "main" }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {dataSource === "local" && (
             <span title="Serverdan yuklab bo'lmadi — mahalliy zaxiradan tiklandi" style={{
-              fontSize: 10, color: T.gold, display: "flex", alignItems: "center", gap: 4,
-              background: T.goldD, padding: "4px 9px", borderRadius: 20, fontWeight: 600,
+              fontSize: 10, color: T.goldL, display: "flex", alignItems: "center", gap: 4,
+              background: "rgba(244,196,104,.12)", padding: "4px 9px", borderRadius: 20, fontWeight: 600,
             }}>
               <AlertTriangle size={10} /> <span className="hide-sm">Lokal zaxira</span>
             </span>
@@ -3615,10 +3752,10 @@ export default function App({ branchId = "main" }) {
             fontSize: 10.5, fontWeight: 600, color: T.muted,
             display: "flex", alignItems: "center", gap: 4,
           }}>
-            {saveState === "saving" && <><Loader2 size={11} className="spin" color={T.gold} /> <span className="hide-sm" style={{ color: T.gold }}>Saqlanmoqda</span></>}
-            {(saveState === "saved" || saveState === "idle") && <><Check size={11} color={T.teal} /> <span className="hide-sm" style={{ color: T.teal }}>Saqlangan</span></>}
-            {saveState === "error" && <><AlertTriangle size={11} color={T.red} /> <span className="hide-sm" style={{ color: T.red }}>Saqlanmadi</span></>}
-            {saveState === "conflict" && <><AlertTriangle size={11} color={T.gold} /> <span className="hide-sm" style={{ color: T.gold }}>Konflikt — qayta yuklang</span></>}
+            {saveState === "saving" && <><span className="led pulse" style={{ background: T.goldL, boxShadow: `0 0 7px ${T.goldL}` }} /> <span className="hide-sm" style={{ color: T.goldL }}>Saqlanmoqda</span></>}
+            {(saveState === "saved" || saveState === "idle") && <><span className="led" style={{ background: T.tealL, boxShadow: `0 0 7px ${T.tealL}` }} /> <span className="hide-sm" style={{ color: T.tealL }}>Saqlangan</span></>}
+            {saveState === "error" && <><span className="led pulse" style={{ background: T.redL, boxShadow: `0 0 8px ${T.redL}` }} /> <span className="hide-sm" style={{ color: T.redL }}>Saqlanmadi</span></>}
+            {saveState === "conflict" && <><span className="led pulse" style={{ background: T.goldL, boxShadow: `0 0 8px ${T.goldL}` }} /> <span className="hide-sm" style={{ color: T.goldL }}>Konflikt — qayta yuklang</span></>}
           </span>
 
           <button
@@ -3633,7 +3770,7 @@ export default function App({ branchId = "main" }) {
                 ? `linear-gradient(180deg,#E4292B,${T.red} 55%,#B71C1C)`
                 : `linear-gradient(180deg,#12A08F,${T.teal} 55%,#0A7466)`,
               color: "#fff", fontSize: 12, fontWeight: 700,
-              boxShadow: `inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px rgba(62,50,30,.10), 0 4px 12px ${saveState === "error" ? T.red : T.teal}33`,
+              boxShadow: `inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px rgba(0,0,0,.25), 0 0 14px ${saveState === "error" ? T.red : T.teal}55`,
             }}
           >
             {saveState === "saving"
@@ -3642,7 +3779,7 @@ export default function App({ branchId = "main" }) {
             <span className="hide-sm">{saveState === "error" ? "Qayta saqlash" : "Saqlash"}</span>
           </button>
 
-          <div style={{ width: 1, height: 22, background: T.border }} className="hide-sm" />
+          <div style={{ width: 1, height: 22, background: T.hdrLine }} className="hide-sm" />
 
           <HeaderMenu
             role={role} rate={rate} patch={patch} data={data} branchId={branchId}
@@ -3671,7 +3808,7 @@ export default function App({ branchId = "main" }) {
             authClient.signOutGoogle();
             authClient.clearPinToken();
             setRole(null); setUstaName(null); setSupplierName(null); setPartnerId(null);
-          }} style={{ color: T.red }}>
+          }} style={{ color: T.redL, background: "rgba(255,255,255,.06)", border: `1px solid ${T.hdrLine}`, boxShadow: "none" }}>
             <LogOut size={13} />
           </Btn>
         </div>
@@ -8690,15 +8827,24 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
     runLocked(() => patch((d) => {
       // Qarz hisobidan yechish (kirim: qarzdor; chiqim: ta'minotchi)
       let noteExtra = "";
+      // XATO TUZATILDI (v68): ilgari bu yozuv debtSettleKind'siz saqlanardi —
+      // keyinchalik o'chirilganda qarz qaytarilmasdi. Endi ikkala holatda ham
+      // (yangi debtSettle orqali yoki eski "Ta'minotchiga to'lov" interfeysi
+      // orqali) qaysi qarz yechilgani aniq belgilanadi.
+      let settleKind, settleId;
       if (entry.debtSettle && entry.debtSettle.kind) {
         const res = applyDebtSettlement(d, entry.debtSettle, num(entry.amountSum));
         if (res.applied > 0) {
           noteExtra = ` · qarz yechildi: ${res.label} (${fmtSum(res.applied)})`;
         }
+        settleKind = entry.debtSettle.kind;
+        settleId = entry.debtSettle.id;
       } else if (entry.type === "chiqim" && entry.category === "Ta'minotchiga to'lov" && entry.supplier) {
         // Eski interfeys: faqat ta'minotchi nomi berilgan
         const res = applyDebtSettlement(d, { kind: "supplier", id: entry.supplier, name: entry.supplier }, num(entry.amountSum));
         if (res.applied > 0) noteExtra = ` · qarz yechildi: ${res.label} (${fmtSum(res.applied)})`;
+        settleKind = "supplier";
+        settleId = entry.supplier;
       }
 
       const { debtSettle, ...rest } = entry;
@@ -8707,8 +8853,8 @@ function CashierTab({ data, patch, rate, readOnly = false }) {
         time: rest.time || nowTime(),
         ...rest,
         note: ((rest.note || "") + noteExtra).trim(),
-        debtSettleKind: debtSettle?.kind || undefined,
-        debtSettleId: debtSettle?.id || undefined,
+        debtSettleKind: settleKind,
+        debtSettleId: settleId,
       });
       if (entry.reminderDate) {
         d.debtReminders = d.debtReminders || [];
@@ -10909,6 +11055,7 @@ function EmployeesTab({ data, patch, rate }) {
   const [editOpen, setEditOpen] = useState(null);
   const [payOpen, setPayOpen] = useState(null);
   const [monthFilter, setMonthFilter] = useState(currentMonthKey());
+  const [showFormer, setShowFormer] = useState(false);
 
   const employeesRaw = data.employees || [];
   const payments = data.employeePayments || [];
@@ -10934,6 +11081,12 @@ function EmployeesTab({ data, patch, rate }) {
       ? { ...e, standardSalary: num(e.standardSalary) + monthKpiTotal, kpiBonus: monthKpiTotal }
       : e
   );
+
+  // Faol/Sobiq xodimlar: ishdan bo'shatilgan xodim o'chirilmaydi — faqat
+  // active:false bo'lib qoladi, shuning uchun tarixi (to'lovlar, avanslar) butunlay saqlanadi.
+  const activeEmployees = employees.filter((e) => e.active !== false);
+  const formerEmployees = employees.filter((e) => e.active === false);
+  const visibleEmployees = showFormer ? formerEmployees : activeEmployees;
 
   // Azim Kassadan vaqti-vaqti bilan avans sifatida shaxsan pul olib turadi — bular "Ish haqi"
   // toifasida, izohida ismi ko'rsatilgan holda yoziladi ("Rahbarga chiqim" toifasi bunga
@@ -11038,6 +11191,25 @@ function EmployeesTab({ data, patch, rate }) {
     patch((d) => { d.employees = d.employees.filter((e) => e.id !== id); return d; });
   }
 
+  // Ishdan bo'shatish — qattiq o'chirish emas: xodim "Sobiq xodimlar" ro'yxatiga
+  // o'tadi, kirish huquqi (agar bo'lsa) alohida bekor qilinishi kerak, lekin bu
+  // yerdagi to'lovlar/avanslar tarixi butunlay saqlanib qoladi.
+  function terminateEmployee(id) {
+    patch((d) => {
+      const e = d.employees.find((x) => x.id === id);
+      if (e) { e.active = false; e.terminatedAt = todayISO(); }
+      return d;
+    });
+  }
+
+  function reactivateEmployee(id) {
+    patch((d) => {
+      const e = d.employees.find((x) => x.id === id);
+      if (e) { e.active = true; delete e.terminatedAt; }
+      return d;
+    });
+  }
+
   function isPaidThisMonth(employeeId) {
     return monthPayments.some((p) => p.employeeId === employeeId) || effectivePaidThisMonthAmount(employeeId) > 0;
   }
@@ -11053,19 +11225,28 @@ function EmployeesTab({ data, patch, rate }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 13, marginBottom: 20 }}>
-        <Stat label="Jami xodimlar" value={employees.length + " ta"} color={T.blue} Icon={Users} />
+        <Stat label="Jami xodimlar" value={activeEmployees.length + " ta"} color={T.blue} Icon={Users} />
         <Stat label={`To'langan (${monthFilter})`} value={fmtSum(totalPaidThisMonth)} color={T.teal} Icon={Check} />
-        <Stat label="Bu oy to'lanmagan" value={employees.filter((e) => !isPaidThisMonth(e.id)).length + " ta"} color={T.gold} Icon={Clock} />
+        <Stat label="Bu oy to'lanmagan" value={activeEmployees.filter((e) => !isPaidThisMonth(e.id)).length + " ta"} color={T.gold} Icon={Clock} />
+        <Stat label="Sobiq xodimlar" value={formerEmployees.length + " ta"} color={T.muted} Icon={UserX} />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>Oy:</span>
         <Sel value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)}
           style={{ width: 150 }}
           options={months.map((m) => ({ value: m, label: m }))} />
+        <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+          <Btn size="sm" variant={!showFormer ? "teal" : "ghost"} onClick={() => setShowFormer(false)}>
+            <UserCheck size={13} /> Faol xodimlar ({activeEmployees.length})
+          </Btn>
+          <Btn size="sm" variant={showFormer ? "teal" : "ghost"} onClick={() => setShowFormer(true)}>
+            <UserX size={13} /> Sobiq xodimlar ({formerEmployees.length})
+          </Btn>
+        </div>
       </div>
 
-      <Card title={`Xodimlar ro'yxati (${employees.length})`} pad={false}>
+      <Card title={showFormer ? `Sobiq xodimlar (${formerEmployees.length})` : `Faol xodimlar (${activeEmployees.length})`} pad={false}>
         <Tbl
           empty="Hali xodim qo'shilmagan"
           cols={[
@@ -11090,6 +11271,7 @@ function EmployeesTab({ data, patch, rate }) {
             {
               k: "status", h: `Holat`,
               r: (r) => {
+                if (r.active === false) return <Badge color={T.muted}>Sobiq xodim</Badge>;
                 const paid = effectivePaidThisMonthAmount(r.id);
                 if (paid <= 0) return <Badge color={T.red}>Kutilmoqda</Badge>;
                 if (paid < num(r.standardSalary) - 0.5) return <Badge color={T.gold}>Qisman to'langan</Badge>;
@@ -11098,39 +11280,61 @@ function EmployeesTab({ data, patch, rate }) {
             },
             {
               k: "act", h: "",
-              r: (r) => (
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <Btn size="sm" variant="teal" onClick={() => setPayOpen(r)}>Oylik to'lash</Btn>
-                  <button
-                    title={r.id === azimEmployeeId ? "Azim KPI'ga ulangan — bosib uzish" : "Analitikadagi Azim KPI shu xodimga qo'shilsin"}
-                    onClick={() => patch((d) => {
-                      d.settings.azimEmployeeId = d.settings.azimEmployeeId === r.id ? null : r.id;
-                      return d;
-                    })}
-                    style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      color: r.id === azimEmployeeId ? T.gold : T.muted,
-                    }}>
-                    <Star size={13} fill={r.id === azimEmployeeId ? T.gold : "none"} />
-                  </button>
-                  <button onClick={() => setEditOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}>
-                    <Pencil size={13} />
-                  </button>
-                  <button onClick={async () => {
-                    const hasHistory = payments.some((p) => p.employeeId === r.id);
-                    const msg = hasHistory
-                      ? `${r.name} o'chirilsinmi?\nBu xodimning o'tgan to'lovlar tarixidagi ismi "Noma'lum" bo'lib qoladi.`
-                      : `${r.name} o'chirilsinmi?`;
-                    if (await askConfirm(msg)) deleteEmployee(r.id);
-                  }}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}>
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ),
+              r: (r) => {
+                if (r.active === false) {
+                  return (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <Btn size="sm" variant="teal" onClick={async () => {
+                        if (await askConfirm(`${r.name} qayta ishga olinsinmi?`)) reactivateEmployee(r.id);
+                      }}>Qayta ishga olish</Btn>
+                      <button onClick={() => setEditOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}>
+                        <Pencil size={13} />
+                      </button>
+                      <button title="Butunlay o'chirish" onClick={async () => {
+                        const hasHistory = payments.some((p) => p.employeeId === r.id);
+                        const msg = hasHistory
+                          ? `${r.name} butunlay o'chirilsinmi?\nBu xodimning o'tgan to'lovlar tarixidagi ismi "Noma'lum" bo'lib qoladi.\nBu amalni qaytarib bo'lmaydi.`
+                          : `${r.name} butunlay o'chirilsinmi?\nBu amalni qaytarib bo'lmaydi.`;
+                        if (await askConfirm(msg)) deleteEmployee(r.id);
+                      }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <Btn size="sm" variant="teal" onClick={() => setPayOpen(r)}>Oylik to'lash</Btn>
+                    <button
+                      title={r.id === azimEmployeeId ? "Azim KPI'ga ulangan — bosib uzish" : "Analitikadagi Azim KPI shu xodimga qo'shilsin"}
+                      onClick={() => patch((d) => {
+                        d.settings.azimEmployeeId = d.settings.azimEmployeeId === r.id ? null : r.id;
+                        return d;
+                      })}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        color: r.id === azimEmployeeId ? T.gold : T.muted,
+                      }}>
+                      <Star size={13} fill={r.id === azimEmployeeId ? T.gold : "none"} />
+                    </button>
+                    <button onClick={() => setEditOpen(r)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted }}>
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      title="Ishdan bo'shatish"
+                      onClick={async () => {
+                        if (await askConfirm(`${r.name} ishdan bo'shatilsinmi?\nTarixi (to'lovlar, yozuvlar) to'liq saqlanib qoladi, lekin "Sobiq xodimlar" ro'yxatiga o'tadi. Kirish kodi bo'lsa, uni alohida (Sozlamalar) bekor qiling.`)) terminateEmployee(r.id);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: T.red }}>
+                      <UserX size={13} />
+                    </button>
+                  </div>
+                );
+              },
             },
           ]}
-          rows={employees}
+          rows={visibleEmployees}
         />
       </Card>
 
@@ -11440,7 +11644,15 @@ function DebtBookTab({ data, patch, rate, readOnly = false }) {
             remaining -= pay;
           }
         }
-        d.cashflow.unshift({ id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Ta'minotchiga to'lov", currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, supplier: item.name, note: `Qarz to'lovi — ${item.name}` });
+        d.cashflow.unshift({
+          id: uid(), time: nowTime(), date: todayISO(), type: "chiqim", category: "Ta'minotchiga to'lov",
+          currency: "SUM", amount: amountSum, amountSum, amountUsd: amountSum / rate, supplier: item.name,
+          note: `Qarz to'lovi — ${item.name}`,
+          // XATO TUZATILDI (v68): bu yozuv ilgari debtSettleKind'siz saqlanardi —
+          // keyinchalik o'chirilganda qarz qaytarilmasdi (hisobot kamroq ko'rsatardi).
+          debtSettleKind: "supplier",
+          debtSettleId: item.name,
+        });
       }
       return d;
     }));
