@@ -76,6 +76,7 @@ const emptyData = () => ({
     ustaCodes: [], // {id, name, code} — har bir ustaning shaxsiy 4 xonali kirish kodi
     supplierCodes: [], // {id, name, code} — ta'minotchining shaxsiy kirish kodi (name = stockIns.supplier bilan bir xil)
     partnerCodes: [], // {id, partnerId, code} — hamkorning shaxsiy kirish kodi
+    skladCodes: [], // {id, name, code, active} — omborchining shaxsiy kirish kodi; active:false = ishdan bo'shatilgan
     categories: [...CATEGORIES_DEFAULT],
     branches: [{ id: "main", name: "Bosh filial", openDate: "" }],
     activeBranchId: "main",
@@ -1326,7 +1327,8 @@ function StaffPinModal({ onClose }) {
   return (
     <Modal title="Xodimlar — Google orqali kirish" onClose={onClose} wide>
       <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
-        Kassir va sklad endi shu ro'yxatdagi Gmail orqali kiradi (4 xonali kod endi ishlamaydi).
+        Kassir endi shu ro'yxatdagi Gmail orqali kiradi (4 xonali kod endi ishlamaydi).
+        Sklad (omborchi) endi alohida "Omborchi kodlari" bo'limidan shaxsiy kod bilan kiradi.
         Google orqali kirgandan keyin, agar xodimga shaxsiy PIN o'rnatilgan bo'lsa, kirish uchun
         yana shu PIN ham so'raladi — bu kompyuterda Google hisobingiz ochiq turgan payt boshqa
         birov ilovaga kirib qolishining oldini oladi.
@@ -1463,9 +1465,9 @@ function PinChangeModal({ pins, onClose, onSave }) {
       </div>
       <div style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: 12, marginTop: 14 }}>
         <p style={{ fontSize: 12, color: T.muted2, lineHeight: 1.6 }}>
-          <b>Kassir</b> va <b>Sklad</b> uchun endi 4 xonali kod yo'q — ular faqat <b>Google hisobi</b>
-          orqali kiradi. Yangi kassir yoki sklad xodimini qo'shish uchun "Xodimlar — 2-bosqich PIN"
-          bo'limiga murojaat qiling.
+          <b>Kassir</b> uchun endi 4 xonali kod yo'q — faqat <b>Google hisobi</b> orqali kiradi.
+          Yangi kassir xodimini qo'shish uchun "Xodimlar — 2-bosqich PIN" bo'limiga murojaat qiling.
+          <b>Sklad</b> (omborchi) endi "Omborchi kodlari" bo'limidan shaxsiy 4 xonali kod bilan kiradi.
         </p>
       </div>
       {error && <p style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{error}</p>}
@@ -1547,6 +1549,85 @@ function UstaCodesModal({ codes, data, onClose, onAdd, onRemove }) {
             );
           })}
         </div>
+      )}
+    </Modal>
+  );
+}
+
+function SkladCodesModal({ codes, onClose, onAdd, onRemove, onToggle }) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const active = codes.filter((c) => c.active !== false);
+  const former = codes.filter((c) => c.active === false);
+
+  function handleAdd() {
+    if (!name.trim()) { setError("Omborchi ismini kiriting."); return; }
+    if (!/^\d{4}$/.test(code)) { setError("Kod aynan 4 ta raqamdan iborat bo'lishi kerak."); return; }
+    if (codes.some((c) => c.code === code)) { setError("Bu kod allaqachon band."); return; }
+    if (codes.some((c) => sameName(c.name, name))) { setError("Bu omborchi uchun kod allaqachon mavjud."); return; }
+    onAdd({ name: name.trim(), code, active: true });
+    setName(""); setCode(""); setError("");
+  }
+
+  return (
+    <Modal title="Omborchi kodlari — shaxsiy kirish" onClose={onClose} wide>
+      <p style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+        Har bir omborchiga shaxsiy 4 xonali kod bering. Omborchi shu kod bilan kirganda tizim uni
+        avtomatik taniydi — ism tanlash shart emas — va faqat Sklad bo'limiga tushadi. Ishdan
+        bo'shatilganda "Ishdan bo'shatish" tugmasini bosing — tarix saqlanadi, faqat kirish to'xtaydi.
+      </p>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <input style={{ ...iSt, flex: 1, minWidth: 150 }} placeholder="Omborchi ismi"
+          value={name} onChange={(e) => { setName(e.target.value); setError(""); }} />
+        <input type="text" inputMode="numeric" style={{ ...iSt, width: 110 }} placeholder="4 xonali kod"
+          value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 4)); setError(""); }} />
+        <Btn onClick={handleAdd} color={T.gold}><Plus size={14} /></Btn>
+      </div>
+      {error && <p style={{ color: T.red, fontSize: 12, marginBottom: 10 }}>{error}</p>}
+
+      <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 6, marginBottom: 8 }}>Faol omborchilar ({active.length})</div>
+      {active.length === 0 ? (
+        <p style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: "14px 0" }}>Hali omborchi qo'shilmagan</p>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {active.map((c) => (
+            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.s3, borderRadius: 9, padding: "11px 14px" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{c.name}</div>
+                <div className="mo" style={{ fontSize: 12, color: T.gold, letterSpacing: ".14em" }}>{c.code}</div>
+              </div>
+              <button onClick={() => onToggle(c.id, false)} style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.red}`, color: T.red, background: "none", cursor: "pointer" }}>
+                Ishdan bo'shatish
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {former.length > 0 && (
+        <>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 18, marginBottom: 8, color: T.muted }}>Sobiq xodimlar ({former.length})</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {former.map((c) => (
+              <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.s2, borderRadius: 9, padding: "11px 14px", opacity: 0.75 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>{c.name}</div>
+                  <div className="mo" style={{ fontSize: 12, color: T.muted, letterSpacing: ".14em" }}>{c.code} — bekor</div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => onToggle(c.id, true)} style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.teal}`, color: T.teal, background: "none", cursor: "pointer" }}>
+                    Qayta ishga olish
+                  </button>
+                  <button onClick={() => onRemove(c.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Modal>
   );
@@ -1849,6 +1930,7 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
   useEffect(() => { setEditCodeHash(data?.settings?.editCodeHash); }, [data?.settings?.editCodeHash]);
   const [ownerCodesOpen, setOwnerCodesOpen] = useState(false);
   const [ustaCodesOpen, setUstaCodesOpen] = useState(false);
+  const [skladCodesOpen, setSkladCodesOpen] = useState(false);
   const [supplierCodesOpen, setSupplierCodesOpen] = useState(false);
   const [partnerCodesOpen, setPartnerCodesOpen] = useState(false);
   const [branchesOpen, setBranchesOpen] = useState(false);
@@ -1911,6 +1993,12 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
             <button onClick={() => { setUstaCodesOpen(true); setOpen(false); }}
               className="menu-item" style={menuItemSt}>
               <Wrench size={14} color={T.teal} /> Usta kodlari
+            </button>
+          )}
+          {role === "azim" && (
+            <button onClick={() => { setSkladCodesOpen(true); setOpen(false); }}
+              className="menu-item" style={menuItemSt}>
+              <Package size={14} color={T.gold} /> Omborchi kodlari
             </button>
           )}
           {role === "azim" && (
@@ -2009,6 +2097,13 @@ function HeaderMenu({ role, rate, patch, data, onImport, onResetAll, branchId })
         <UstaCodesModal codes={data.settings.ustaCodes || []} data={data} onClose={() => setUstaCodesOpen(false)}
           onAdd={(item) => patch((d) => { d.settings.ustaCodes = d.settings.ustaCodes || []; d.settings.ustaCodes.push({ id: uid(), ...item }); return d; })}
           onRemove={(id) => patch((d) => { d.settings.ustaCodes = (d.settings.ustaCodes || []).filter((c) => c.id !== id); return d; })}
+        />
+      )}
+      {skladCodesOpen && (
+        <SkladCodesModal codes={data.settings.skladCodes || []} onClose={() => setSkladCodesOpen(false)}
+          onAdd={(item) => patch((d) => { d.settings.skladCodes = d.settings.skladCodes || []; d.settings.skladCodes.push({ id: uid(), ...item }); return d; })}
+          onRemove={(id) => patch((d) => { d.settings.skladCodes = (d.settings.skladCodes || []).filter((c) => c.id !== id); return d; })}
+          onToggle={(id, activeVal) => patch((d) => { const c = (d.settings.skladCodes || []).find((x) => x.id === id); if (c) c.active = activeVal; return d; })}
         />
       )}
       {supplierCodesOpen && (

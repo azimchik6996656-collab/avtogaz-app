@@ -71,6 +71,7 @@ export async function POST(request) {
     const ustaCodes = settings.ustaCodes || [];
     const supplierCodes = settings.supplierCodes || [];
     const partnerCodes = settings.partnerCodes || [];
+    const skladCodes = settings.skladCodes || [];
     const rahbarPin = settings.pins?.rahbar;
     const stationPin = settings.pins?.ustaStation;
 
@@ -98,6 +99,15 @@ export async function POST(request) {
       if (p?.code && (await pinsMatch(pin, p.code))) {
         recordSuccess(ip);
         return Response.json({ ok: true, role: "hamkor", name: p.partnerId, token: issueSession({ role: "hamkor", name: p.partnerId, branchId }) });
+      }
+    }
+    // Omborchi (sklad) — shaxsiy kod. Faqat "active" (ishdan bo'shatilmagan) kodlar tekshiriladi —
+    // shu orqali "ishdan bo'shatish = kod avtomatik bekor" ta'minlanadi, alohida bekor qilish
+    // logikasi kerak emas.
+    for (const w of skladCodes) {
+      if (w?.active !== false && w?.code && (await pinsMatch(pin, w.code))) {
+        recordSuccess(ip);
+        return Response.json({ ok: true, role: "sklad", name: w.name, token: issueSession({ role: "sklad", name: w.name, branchId }) });
       }
     }
 
